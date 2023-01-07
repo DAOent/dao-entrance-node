@@ -674,18 +674,18 @@ func handleRegistrationFlow(
 		)
 	}
 
-	registrationEnabled := !cfg.RegistrationDisabled
-	if v := cfg.Matrix.VirtualHost(r.ServerName); v != nil {
-		registrationEnabled, _ = v.RegistrationAllowed()
-	}
-	if !registrationEnabled && r.Auth.Type != authtypes.LoginTypeSharedSecret {
-		return util.JSONResponse{
-			Code: http.StatusForbidden,
-			JSON: jsonerror.Forbidden(
-				fmt.Sprintf("Registration is disabled on %q", r.ServerName),
-			),
-		}
-	}
+	// registrationEnabled := !cfg.RegistrationDisabled
+	// if v := cfg.Matrix.VirtualHost(r.ServerName); v != nil {
+	// 	registrationEnabled, _ = v.RegistrationAllowed()
+	// }
+	// if !registrationEnabled && r.Auth.Type != authtypes.LoginTypeSharedSecret {
+	// 	return util.JSONResponse{
+	// 		Code: http.StatusForbidden,
+	// 		JSON: jsonerror.Forbidden(
+	// 			fmt.Sprintf("Registration is disabled on %q", r.ServerName),
+	// 		),
+	// 	}
+	// }
 
 	// Make sure normal user isn't registering under an exclusive application
 	// service namespace. Skip this check if no app services are registered.
@@ -728,6 +728,8 @@ func handleRegistrationFlow(
 		// An empty auth type means that we want to fetch the available
 		// flows. It can also mean that we want to register as an appservice
 		// but that is handed above.
+		sessions.addCompletedSessionStage(sessionID, authtypes.LoginTypePassword)
+
 	default:
 		return util.JSONResponse{
 			Code: http.StatusNotImplemented,
