@@ -24,6 +24,9 @@ const (
 	FederationAPIPerformOutboundPeekRequestPath    = "/federationapi/performOutboundPeekRequest"
 	FederationAPIPerformBroadcastEDUPath           = "/federationapi/performBroadcastEDU"
 	FederationAPIPerformWakeupServers              = "/federationapi/performWakeupServers"
+	FederationAPIQueryRelayServers                 = "/federationapi/queryRelayServers"
+	FederationAPIAddRelayServers                   = "/federationapi/addRelayServers"
+	FederationAPIRemoveRelayServers                = "/federationapi/removeRelayServers"
 
 	FederationAPIGetUserDevicesPath      = "/federationapi/client/getUserDevices"
 	FederationAPIClaimKeysPath           = "/federationapi/client/claimKeys"
@@ -507,6 +510,39 @@ func (h *httpFederationInternalAPI) QueryPublicKeys(
 ) error {
 	return httputil.CallInternalRPCAPI(
 		"QueryPublicKeys", h.federationAPIURL+FederationAPIQueryPublicKeyPath,
+		h.httpClient, ctx, request, response,
+	)
+}
+
+func (h *httpFederationInternalAPI) P2PQueryRelayServers(
+	ctx context.Context,
+	request *api.P2PQueryRelayServersRequest,
+	response *api.P2PQueryRelayServersResponse,
+) error {
+	return httputil.CallInternalRPCAPI(
+		"QueryRelayServers", h.federationAPIURL+FederationAPIQueryRelayServers,
+		h.httpClient, ctx, request, response,
+	)
+}
+
+func (h *httpFederationInternalAPI) P2PAddRelayServers(
+	ctx context.Context,
+	request *api.P2PAddRelayServersRequest,
+	response *api.P2PAddRelayServersResponse,
+) error {
+	return httputil.CallInternalRPCAPI(
+		"AddRelayServers", h.federationAPIURL+FederationAPIAddRelayServers,
+		h.httpClient, ctx, request, response,
+	)
+}
+
+func (h *httpFederationInternalAPI) P2PRemoveRelayServers(
+	ctx context.Context,
+	request *api.P2PRemoveRelayServersRequest,
+	response *api.P2PRemoveRelayServersResponse,
+) error {
+	return httputil.CallInternalRPCAPI(
+		"RemoveRelayServers", h.federationAPIURL+FederationAPIRemoveRelayServers,
 		h.httpClient, ctx, request, response,
 	)
 }
