@@ -799,7 +799,9 @@ func checkAndCompleteFlow(
 	cfg *config.ClientAPI,
 	userAPI userapi.ClientUserAPI,
 ) util.JSONResponse {
-	if checkFlowCompleted(flow, cfg.Derived.Registration.Flows) {
+	if checkFlowCompleted(flow, []authtypes.Flow{{Stages: []authtypes.LoginType{
+		authtypes.LoginTypePassword,
+	}}}) {
 		// This flow was completed, registration can continue
 		return completeRegistration(
 			req.Context(), userAPI, r.Username, r.ServerName, "", r.Password, "", req.RemoteAddr,
