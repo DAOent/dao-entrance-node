@@ -6,14 +6,10 @@ while [ -h "$SOURCE"  ]; do
     [[ $SOURCE != /*  ]] && SOURCE="$DIR/$SOURCE"
 done
 DIR="$( cd -P "$( dirname "$SOURCE"  )" && pwd  )"
+cd 
 
 cd "$DIR/../"
 
-CGO_ENABLED=1 go build -trimpath -ldflags "$FLAGS" -v -o "bin/" ./cmd/...
+docker build -f wetee.Dockerfile  -t wetee/im-node:0.0.1 .
 
-cd "$DIR/../bin"
-
-
-
-# PPROFLISTEN=localhost:65432 DENDRITE_TRACE_SQL=1 
-./dendrite-monolith-server --tls-cert server.crt --tls-key server.key --config im.yaml
+docker push wetee/im-node:0.0.1

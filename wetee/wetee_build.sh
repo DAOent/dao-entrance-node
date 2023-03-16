@@ -9,11 +9,12 @@ DIR="$( cd -P "$( dirname "$SOURCE"  )" && pwd  )"
 
 cd "$DIR/../"
 
-CGO_ENABLED=1 go build -trimpath -ldflags "$FLAGS" -v -o "bin/" ./cmd/...
+export GOPROXY=https://goproxy.cn
 
-cd "$DIR/../bin"
+if [ ! -d "wetee/bin" ];then
+    mkdir wetee/bin
+else
+    echo "文件夹已经存在"
+fi
 
-
-
-# PPROFLISTEN=localhost:65432 DENDRITE_TRACE_SQL=1 
-./dendrite-monolith-server --tls-cert server.crt --tls-key server.key --config im.yaml
+occlum-go build -buildvcs=false -o wetee/bin/dendrite-monolith-server ./cmd/dendrite-monolith-server

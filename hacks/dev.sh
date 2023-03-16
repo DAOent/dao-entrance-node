@@ -7,13 +7,7 @@ while [ -h "$SOURCE"  ]; do
 done
 DIR="$( cd -P "$( dirname "$SOURCE"  )" && pwd  )"
 
-cd "$DIR/../"
-
-CGO_ENABLED=1 go build -trimpath -ldflags "$FLAGS" -v -o "bin/" ./cmd/...
-
-cd "$DIR/../bin"
+# docker run -it --device /dev/sgx/enclave --device /dev/sgx/provision -v /home/xiaobai/work/asyou.me/im-node:/srv wetee/builder:0.0.1
 
 
-
-# PPROFLISTEN=localhost:65432 DENDRITE_TRACE_SQL=1 
-./dendrite-monolith-server --tls-cert server.crt --tls-key server.key --config im.yaml
+docker run -it --device /dev/sgx/enclave --device /dev/sgx/provision -v /home/xiaobai/work/asyou.me/im-node:/srv occlum/occlum:0.29.2-ubuntu20.04
