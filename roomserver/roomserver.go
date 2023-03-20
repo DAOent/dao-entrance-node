@@ -15,30 +15,23 @@
 package roomserver
 
 import (
-	"github.com/gorilla/mux"
+	"github.com/matrix-org/dendrite/internal/caching"
 	"github.com/sirupsen/logrus"
 
 	"github.com/matrix-org/dendrite/roomserver/api"
 	"github.com/matrix-org/dendrite/roomserver/internal"
-	"github.com/matrix-org/dendrite/roomserver/inthttp"
 	"github.com/matrix-org/dendrite/roomserver/storage"
 	"github.com/matrix-org/dendrite/setup/base"
 )
 
-// AddInternalRoutes registers HTTP handlers for the internal API. Invokes functions
-// on the given input API.
-func AddInternalRoutes(router *mux.Router, intAPI api.RoomserverInternalAPI, enableMetrics bool) {
-	inthttp.AddRoutes(intAPI, router, enableMetrics)
-}
-
-// NewInternalAPI returns a concerete implementation of the internal API. Callers
-// can call functions directly on the returned API or via an HTTP interface using AddInternalRoutes.
+// NewInternalAPI returns a concrete implementation of the internal API.
 func NewInternalAPI(
 	base *base.BaseDendrite,
+	caches caching.RoomServerCaches,
 ) api.RoomserverInternalAPI {
 	cfg := &base.Cfg.RoomServer
 
-	roomserverDB, err := storage.Open(base, &cfg.Database, base.Caches)
+	roomserverDB, err := storage.Open(base.ProcessContext.Context(), base.ConnectionManager, &cfg.Database, caches)
 	if err != nil {
 		logrus.WithError(err).Panicf("failed to connect to room server db")
 	}
@@ -46,6 +39,6 @@ func NewInternalAPI(
 	js, nc := base.NATS.Prepare(base.ProcessContext, &cfg.Matrix.JetStream)
 
 	return internal.NewRoomserverAPI(
-		base, roomserverDB, js, nc,
+		base, roomserverDB, js, nc, caches,
 	)
 }

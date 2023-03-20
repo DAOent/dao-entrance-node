@@ -22,19 +22,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/nats-io/nats.go"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/atomic"
+	"gotest.tools/v3/poll"
+
 	"github.com/matrix-org/dendrite/federationapi/producers"
-	keyAPI "github.com/matrix-org/dendrite/keyserver/api"
 	rsAPI "github.com/matrix-org/dendrite/roomserver/api"
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/dendrite/setup/jetstream"
 	"github.com/matrix-org/dendrite/setup/process"
 	"github.com/matrix-org/dendrite/syncapi/types"
 	"github.com/matrix-org/dendrite/test"
-	"github.com/matrix-org/gomatrixserverlib"
-	"github.com/nats-io/nats.go"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/atomic"
-	"gotest.tools/v3/poll"
+	keyAPI "github.com/matrix-org/dendrite/userapi/api"
 )
 
 const (
@@ -198,8 +199,8 @@ func TestProcessTransactionRequestPDUSendFail(t *testing.T) {
 func createTransactionWithEDU(ctx *process.ProcessContext, edus []gomatrixserverlib.EDU) (TxnReq, nats.JetStreamContext, *config.Dendrite) {
 	cfg := &config.Dendrite{}
 	cfg.Defaults(config.DefaultOpts{
-		Generate:   true,
-		Monolithic: true,
+		Generate:       true,
+		SingleDatabase: true,
 	})
 	cfg.Global.JetStream.InMemory = true
 	natsInstance := &jetstream.NATSInstance{}
@@ -427,7 +428,7 @@ func TestProcessTransactionRequestEDUReceipt(t *testing.T) {
 		roomID: map[string]interface{}{
 			"m.read": map[string]interface{}{
 				"@john:kaer.morhen": map[string]interface{}{
-					"data": map[string]interface{}{
+					"data": map[string]int64{
 						"ts": 1533358089009,
 					},
 					"event_ids": []string{
@@ -446,7 +447,7 @@ func TestProcessTransactionRequestEDUReceipt(t *testing.T) {
 		roomID: map[string]interface{}{
 			"m.read": map[string]interface{}{
 				"johnkaer.morhen": map[string]interface{}{
-					"data": map[string]interface{}{
+					"data": map[string]int64{
 						"ts": 1533358089009,
 					},
 					"event_ids": []string{
@@ -463,7 +464,7 @@ func TestProcessTransactionRequestEDUReceipt(t *testing.T) {
 		roomID: map[string]interface{}{
 			"m.read": map[string]interface{}{
 				"@john:bad.domain": map[string]interface{}{
-					"data": map[string]interface{}{
+					"data": map[string]int64{
 						"ts": 1533358089009,
 					},
 					"event_ids": []string{
@@ -647,7 +648,7 @@ func init() {
 }
 
 type testRoomserverAPI struct {
-	rsAPI.RoomserverInternalAPITrace
+	rsAPI.RoomserverInternalAPI
 	inputRoomEvents           []rsAPI.InputRoomEvent
 	queryStateAfterEvents     func(*rsAPI.QueryStateAfterEventsRequest) rsAPI.QueryStateAfterEventsResponse
 	queryEventsByID           func(req *rsAPI.QueryEventsByIDRequest) rsAPI.QueryEventsByIDResponse

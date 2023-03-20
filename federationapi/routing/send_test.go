@@ -48,7 +48,7 @@ func TestHandleSend(t *testing.T) {
 		defer close()
 
 		fedMux := mux.NewRouter().SkipClean(true).PathPrefix(httputil.PublicFederationPathPrefix).Subrouter().UseEncodedPath()
-		base.PublicFederationAPIMux = fedMux
+		base.Routers.Federation = fedMux
 		base.Cfg.FederationAPI.Matrix.SigningIdentity.ServerName = testOrigin
 		base.Cfg.FederationAPI.Matrix.Metrics.Enabled = false
 		fedapi := fedAPI.NewInternalAPI(base, nil, nil, nil, nil, true)
@@ -58,7 +58,7 @@ func TestHandleSend(t *testing.T) {
 		if !ok {
 			panic("This is a programming error.")
 		}
-		routing.Setup(base, nil, r, keyRing, nil, nil, nil, &base.Cfg.MSCs, nil, nil)
+		routing.Setup(base, nil, r, keyRing, nil, nil, &base.Cfg.MSCs, nil, nil)
 
 		handler := fedMux.Get(routing.SendRouteName).GetHandler().ServeHTTP
 		_, sk, _ := ed25519.GenerateKey(nil)

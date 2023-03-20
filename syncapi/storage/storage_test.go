@@ -9,27 +9,27 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/matrix-org/dendrite/internal/sqlutil"
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/dendrite/syncapi/storage"
 	"github.com/matrix-org/dendrite/syncapi/types"
 	"github.com/matrix-org/dendrite/test"
-	"github.com/matrix-org/dendrite/test/testrig"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/stretchr/testify/assert"
 )
 
 var ctx = context.Background()
 
-func MustCreateDatabase(t *testing.T, dbType test.DBType) (storage.Database, func(), func()) {
+func MustCreateDatabase(t *testing.T, dbType test.DBType) (storage.Database, func()) {
 	connStr, close := test.PrepareDBConnectionString(t, dbType)
-	base, closeBase := testrig.CreateBaseDendrite(t, dbType)
-	db, err := storage.NewSyncServerDatasource(base, &config.DatabaseOptions{
+	cm := sqlutil.NewConnectionManager()
+	db, err := storage.NewSyncServerDatasource(context.Background(), cm, &config.DatabaseOptions{
 		ConnectionString: config.DataSource(connStr),
 	})
 	if err != nil {
 		t.Fatalf("NewSyncServerDatasource returned %s", err)
 	}
-	return db, close, closeBase
+	return db, close
 }
 
 func MustWriteEvents(t *testing.T, db storage.Database, events []*gomatrixserverlib.HeaderedEvent) (positions []types.StreamPosition) {
@@ -55,9 +55,8 @@ func TestWriteEvents(t *testing.T) {
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
 		alice := test.NewUser(t)
 		r := test.NewRoom(t, alice)
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 		MustWriteEvents(t, db, r.Events())
 	})
 }
@@ -76,9 +75,8 @@ func WithSnapshot(t *testing.T, db storage.Database, f func(snapshot storage.Dat
 // These tests assert basic functionality of RecentEvents for PDUs
 func TestRecentEventsPDU(t *testing.T) {
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 		alice := test.NewUser(t)
 		// dummy room to make sure SQL queries are filtering on room ID
 		MustWriteEvents(t, db, test.NewRoom(t, alice).Events())
@@ -156,12 +154,12 @@ func TestRecentEventsPDU(t *testing.T) {
 			tc := testCases[i]
 			t.Run(tc.Name, func(st *testing.T) {
 				var filter gomatrixserverlib.RoomEventFilter
-				var gotEvents []types.StreamEvent
+				var gotEvents map[string]types.RecentEvents
 				var limited bool
 				filter.Limit = tc.Limit
 				WithSnapshot(t, db, func(snapshot storage.DatabaseTransaction) {
 					var err error
-					gotEvents, limited, err = snapshot.RecentEvents(ctx, r.ID, types.Range{
+					gotEvents, err = snapshot.RecentEvents(ctx, []string{r.ID}, types.Range{
 						From: tc.From,
 						To:   tc.To,
 					}, &filter, !tc.ReverseOrder, true)
@@ -169,15 +167,18 @@ func TestRecentEventsPDU(t *testing.T) {
 						st.Fatalf("failed to do sync: %s", err)
 					}
 				})
+				streamEvents := gotEvents[r.ID]
+				limited = streamEvents.Limited
 				if limited != tc.WantLimited {
 					st.Errorf("got limited=%v want %v", limited, tc.WantLimited)
 				}
-				if len(gotEvents) != len(tc.WantEvents) {
+				if len(streamEvents.Events) != len(tc.WantEvents) {
 					st.Errorf("got %d events, want %d", len(gotEvents), len(tc.WantEvents))
 				}
-				for j := range gotEvents {
-					if !reflect.DeepEqual(gotEvents[j].JSON(), tc.WantEvents[j].JSON()) {
-						st.Errorf("event %d got %s want %s", j, string(gotEvents[j].JSON()), string(tc.WantEvents[j].JSON()))
+
+				for j := range streamEvents.Events {
+					if !reflect.DeepEqual(streamEvents.Events[j].JSON(), tc.WantEvents[j].JSON()) {
+						st.Errorf("event %d got %s want %s", j, string(streamEvents.Events[j].JSON()), string(tc.WantEvents[j].JSON()))
 					}
 				}
 			})
@@ -188,9 +189,8 @@ func TestRecentEventsPDU(t *testing.T) {
 // The purpose of this test is to ensure that backfill does indeed go backwards, using a topology token
 func TestGetEventsInRangeWithTopologyToken(t *testing.T) {
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 		alice := test.NewUser(t)
 		r := test.NewRoom(t, alice)
 		for i := 0; i < 10; i++ {
@@ -273,9 +273,8 @@ func TestStreamToTopologicalPosition(t *testing.T) {
 	}
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 
 		txn, err := db.NewDatabaseTransaction(ctx)
 		if err != nil {
@@ -511,9 +510,8 @@ func TestSendToDeviceBehaviour(t *testing.T) {
 	bob := test.NewUser(t)
 	deviceID := "one"
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 		// At this point there should be no messages. We haven't sent anything
 		// yet.
 
@@ -896,9 +894,8 @@ func TestRoomSummary(t *testing.T) {
 	}
 
 	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
-		db, close, closeBase := MustCreateDatabase(t, dbType)
+		db, close := MustCreateDatabase(t, dbType)
 		defer close()
-		defer closeBase()
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -920,6 +917,61 @@ func TestRoomSummary(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.wantSummary, summary)
 			})
+		}
+	})
+}
+
+func TestRecentEvents(t *testing.T) {
+	alice := test.NewUser(t)
+	room1 := test.NewRoom(t, alice)
+	room2 := test.NewRoom(t, alice)
+	roomIDs := []string{room1.ID, room2.ID}
+	rooms := map[string]*test.Room{
+		room1.ID: room1,
+		room2.ID: room2,
+	}
+
+	test.WithAllDatabases(t, func(t *testing.T, dbType test.DBType) {
+		filter := gomatrixserverlib.DefaultRoomEventFilter()
+		db, close := MustCreateDatabase(t, dbType)
+		t.Cleanup(close)
+
+		MustWriteEvents(t, db, room1.Events())
+		MustWriteEvents(t, db, room2.Events())
+
+		transaction, err := db.NewDatabaseTransaction(ctx)
+		assert.NoError(t, err)
+		defer transaction.Rollback()
+
+		// get all recent events from 0 to 100 (we only created 5 events, so we should get 5 back)
+		roomEvs, err := transaction.RecentEvents(ctx, roomIDs, types.Range{From: 0, To: 100}, &filter, true, true)
+		assert.NoError(t, err)
+		assert.Equal(t, len(roomEvs), 2, "unexpected recent events response")
+		for _, recentEvents := range roomEvs {
+			assert.Equal(t, 5, len(recentEvents.Events), "unexpected recent events for room")
+		}
+
+		// update the filter to only return one event
+		filter.Limit = 1
+		roomEvs, err = transaction.RecentEvents(ctx, roomIDs, types.Range{From: 0, To: 100}, &filter, true, true)
+		assert.NoError(t, err)
+		assert.Equal(t, len(roomEvs), 2, "unexpected recent events response")
+		for roomID, recentEvents := range roomEvs {
+			origEvents := rooms[roomID].Events()
+			assert.Equal(t, true, recentEvents.Limited, "expected events to be limited")
+			assert.Equal(t, 1, len(recentEvents.Events), "unexpected recent events for room")
+			assert.Equal(t, origEvents[len(origEvents)-1].EventID(), recentEvents.Events[0].EventID())
+		}
+
+		// not chronologically ordered still returns the events in order (given ORDER BY id DESC)
+		roomEvs, err = transaction.RecentEvents(ctx, roomIDs, types.Range{From: 0, To: 100}, &filter, false, true)
+		assert.NoError(t, err)
+		assert.Equal(t, len(roomEvs), 2, "unexpected recent events response")
+		for roomID, recentEvents := range roomEvs {
+			origEvents := rooms[roomID].Events()
+			assert.Equal(t, true, recentEvents.Limited, "expected events to be limited")
+			assert.Equal(t, 1, len(recentEvents.Events), "unexpected recent events for room")
+			assert.Equal(t, origEvents[len(origEvents)-1].EventID(), recentEvents.Events[0].EventID())
 		}
 	})
 }

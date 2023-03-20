@@ -30,7 +30,7 @@ import (
 	"github.com/matrix-org/dendrite/clientapi/auth/authtypes"
 	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/internal"
-	"github.com/matrix-org/dendrite/keyserver"
+	"github.com/matrix-org/dendrite/internal/caching"
 	"github.com/matrix-org/dendrite/roomserver"
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/dendrite/test"
@@ -201,8 +201,8 @@ func TestValidationOfApplicationServices(t *testing.T) {
 	// Set up a config
 	fakeConfig := &config.Dendrite{}
 	fakeConfig.Defaults(config.DefaultOpts{
-		Generate:   true,
-		Monolithic: true,
+		Generate:       true,
+		SingleDatabase: true,
 	})
 	fakeConfig.Global.ServerName = "localhost"
 	fakeConfig.ClientAPI.Derived.ApplicationServices = []config.ApplicationService{fakeApplicationService}
@@ -408,10 +408,9 @@ func Test_register(t *testing.T) {
 		base, baseClose := testrig.CreateBaseDendrite(t, dbType)
 		defer baseClose()
 
-		rsAPI := roomserver.NewInternalAPI(base)
-		keyAPI := keyserver.NewInternalAPI(base, &base.Cfg.KeyServer, nil, rsAPI)
-		userAPI := userapi.NewInternalAPI(base, &base.Cfg.UserAPI, nil, keyAPI, rsAPI, nil)
-		keyAPI.SetUserAPI(userAPI)
+		caches := caching.NewRistrettoCache(base.Cfg.Global.Cache.EstimatedMaxSize, base.Cfg.Global.Cache.MaxAge, caching.DisableMetrics)
+		rsAPI := roomserver.NewInternalAPI(base, caches)
+		userAPI := userapi.NewInternalAPI(base, rsAPI, nil)
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -581,10 +580,9 @@ func TestRegisterUserWithDisplayName(t *testing.T) {
 		defer baseClose()
 		base.Cfg.Global.ServerName = "server"
 
-		rsAPI := roomserver.NewInternalAPI(base)
-		keyAPI := keyserver.NewInternalAPI(base, &base.Cfg.KeyServer, nil, rsAPI)
-		userAPI := userapi.NewInternalAPI(base, &base.Cfg.UserAPI, nil, keyAPI, rsAPI, nil)
-		keyAPI.SetUserAPI(userAPI)
+		caches := caching.NewRistrettoCache(base.Cfg.Global.Cache.EstimatedMaxSize, base.Cfg.Global.Cache.MaxAge, caching.DisableMetrics)
+		rsAPI := roomserver.NewInternalAPI(base, caches)
+		userAPI := userapi.NewInternalAPI(base, rsAPI, nil)
 		deviceName, deviceID := "deviceName", "deviceID"
 		expectedDisplayName := "DisplayName"
 		response := completeRegistration(
@@ -621,11 +619,9 @@ func TestRegisterAdminUsingSharedSecret(t *testing.T) {
 		base.Cfg.Global.ServerName = "server"
 		sharedSecret := "dendritetest"
 		base.Cfg.ClientAPI.RegistrationSharedSecret = sharedSecret
-
-		rsAPI := roomserver.NewInternalAPI(base)
-		keyAPI := keyserver.NewInternalAPI(base, &base.Cfg.KeyServer, nil, rsAPI)
-		userAPI := userapi.NewInternalAPI(base, &base.Cfg.UserAPI, nil, keyAPI, rsAPI, nil)
-		keyAPI.SetUserAPI(userAPI)
+		caches := caching.NewRistrettoCache(base.Cfg.Global.Cache.EstimatedMaxSize, base.Cfg.Global.Cache.MaxAge, caching.DisableMetrics)
+		rsAPI := roomserver.NewInternalAPI(base, caches)
+		userAPI := userapi.NewInternalAPI(base, rsAPI, nil)
 
 		expectedDisplayName := "rabbit"
 		jsonStr := []byte(`{"admin":true,"mac":"24dca3bba410e43fe64b9b5c28306693bf3baa9f","nonce":"759f047f312b99ff428b21d581256f8592b8976e58bc1b543972dc6147e529a79657605b52d7becd160ff5137f3de11975684319187e06901955f79e5a6c5a79","password":"wonderland","username":"alice","displayname":"rabbit"}`)

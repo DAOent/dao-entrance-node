@@ -1,5 +1,46 @@
 # Changelog
 
+## Dendrite 0.12.0 (2023-03-13)
+
+### Features
+
+- The userapi and keyserver have been merged (no actions needed regarding the database)
+- The internal NATS JetStream server is now using logrus for logging (contributed by [dvob](https://github.com/dvob))
+- The roomserver database has been refactored to have separate interfaces when working with rooms and events. Also includes increased usage of the cache to avoid database round trips. (database is unchanged)
+- The pinecone demo now shuts down more cleanly
+- The Helm chart now has the ability to deploy a Grafana chart as well (contributed by [genofire](https://github.com/genofire))
+- Support for listening on unix sockets has been added (contributed by [cyberb](https://github.com/cyberb))
+- The internal NATS server was updated to v2.9.15
+- Initial support for `runtime/trace` has been added, to further track down long-running tasks
+
+### Fixes
+
+- The `session_id` is now correctly set when using SQLite
+- An issue where device keys could be removed if a device ID is reused has been fixed
+- A possible DoS issue related to relations has been fixed (reported by [sleroq](https://github.com/sleroq))
+- When backfilling events, errors are now ignored if we still could fetch events
+
+### Other
+
+- **⚠️ DEPRECATION: Polylith/HTTP API mode has been removed**
+- The default endpoint to report usages stats to has been updated
+
+## Dendrite 0.11.1 (2023-02-10)
+
+**⚠️ DEPRECATION WARNING: This is the last release to have polylith and HTTP API mode. Future releases are monolith only.**
+
+### Features
+
+* Dendrite can now be compiled against Go 1.20
+* Initial store and forward support has been added
+* A landing page showing that Dendrite is running has been added (contributed by [LukasLJL](https://github.com/LukasLJL))
+
+### Fixes
+
+- `/sync` is now using significantly less database round trips when using Postgres, resulting in faster initial syncs, allowing larger accounts to login again
+- Many under the hood pinecone improvements
+- Publishing rooms is now possible again
+
 ## Dendrite 0.11.0 (2023-01-20)
 
 The last three missing federation API Sytests have been fixed - bringing us to 100% server-server Synapse parity, with client-server parity at 93% 🎉

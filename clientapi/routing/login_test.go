@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/matrix-org/dendrite/clientapi/auth/authtypes"
-	"github.com/matrix-org/dendrite/keyserver"
+	"github.com/matrix-org/dendrite/internal/caching"
 	"github.com/matrix-org/dendrite/roomserver"
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -37,14 +37,13 @@ func TestLogin(t *testing.T) {
 			SigningIdentity: gomatrixserverlib.SigningIdentity{ServerName: "vh1"},
 		})
 
-		rsAPI := roomserver.NewInternalAPI(base)
+		caches := caching.NewRistrettoCache(base.Cfg.Global.Cache.EstimatedMaxSize, base.Cfg.Global.Cache.MaxAge, caching.DisableMetrics)
+		rsAPI := roomserver.NewInternalAPI(base, caches)
 		// Needed for /login
-		keyAPI := keyserver.NewInternalAPI(base, &base.Cfg.KeyServer, nil, rsAPI)
-		userAPI := userapi.NewInternalAPI(base, &base.Cfg.UserAPI, nil, keyAPI, rsAPI, nil)
-		keyAPI.SetUserAPI(userAPI)
+		userAPI := userapi.NewInternalAPI(base, rsAPI, nil)
 
 		// We mostly need the userAPI for this test, so nil for other APIs/caches etc.
-		Setup(base, &base.Cfg.ClientAPI, nil, nil, userAPI, nil, nil, nil, nil, nil, keyAPI, nil, &base.Cfg.MSCs, nil)
+		Setup(base, &base.Cfg.ClientAPI, nil, nil, userAPI, nil, nil, nil, nil, nil, nil, &base.Cfg.MSCs, nil)
 
 		// Create password
 		password := util.RandomString(8)
@@ -117,7 +116,7 @@ func TestLogin(t *testing.T) {
 					"password": password,
 				}))
 				rec := httptest.NewRecorder()
-				base.PublicClientAPIMux.ServeHTTP(rec, req)
+				base.Routers.Client.ServeHTTP(rec, req)
 				if tc.wantOK && rec.Code != http.StatusOK {
 					t.Fatalf("failed to login: %s", rec.Body.String())
 				}

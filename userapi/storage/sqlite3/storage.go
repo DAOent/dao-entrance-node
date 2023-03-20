@@ -23,16 +23,15 @@ import (
 	"github.com/matrix-org/gomatrixserverlib"
 
 	"github.com/matrix-org/dendrite/internal/sqlutil"
-	"github.com/matrix-org/dendrite/setup/base"
 	"github.com/matrix-org/dendrite/setup/config"
 
 	"github.com/matrix-org/dendrite/userapi/storage/shared"
 	"github.com/matrix-org/dendrite/userapi/storage/sqlite3/deltas"
 )
 
-// NewDatabase creates a new accounts and profiles database
-func NewDatabase(base *base.BaseDendrite, dbProperties *config.DatabaseOptions, serverName gomatrixserverlib.ServerName, bcryptCost int, openIDTokenLifetimeMS int64, loginTokenLifetime time.Duration, serverNoticesLocalpart string) (*shared.Database, error) {
-	db, writer, err := base.DatabaseConnection(dbProperties, sqlutil.NewExclusiveWriter())
+// NewUserDatabase creates a new accounts and profiles database
+func NewUserDatabase(ctx context.Context, conMan sqlutil.Connections, dbProperties *config.DatabaseOptions, serverName gomatrixserverlib.ServerName, bcryptCost int, openIDTokenLifetimeMS int64, loginTokenLifetime time.Duration, serverNoticesLocalpart string) (*shared.Database, error) {
+	db, writer, err := conMan.Connection(dbProperties)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +48,7 @@ func NewDatabase(base *base.BaseDendrite, dbProperties *config.DatabaseOptions, 
 			return deltas.UpServerNames(ctx, txn, serverName)
 		},
 	})
-	if err = m.Up(base.Context()); err != nil {
+	if err = m.Up(ctx); err != nil {
 		return nil, err
 	}
 
@@ -109,7 +108,7 @@ func NewDatabase(base *base.BaseDendrite, dbProperties *config.DatabaseOptions, 
 			return deltas.UpServerNamesPopulate(ctx, txn, serverName)
 		},
 	})
-	if err = m.Up(base.Context()); err != nil {
+	if err = m.Up(ctx); err != nil {
 		return nil, err
 	}
 
@@ -132,5 +131,46 @@ func NewDatabase(base *base.BaseDendrite, dbProperties *config.DatabaseOptions, 
 		LoginTokenLifetime:    loginTokenLifetime,
 		BcryptCost:            bcryptCost,
 		OpenIDTokenLifetimeMS: openIDTokenLifetimeMS,
+	}, nil
+}
+
+func NewKeyDatabase(conMan sqlutil.Connections, dbProperties *config.DatabaseOptions) (*shared.KeyDatabase, error) {
+	db, writer, err := conMan.Connection(dbProperties)
+	if err != nil {
+		return nil, err
+	}
+	otk, err := NewSqliteOneTimeKeysTable(db)
+	if err != nil {
+		return nil, err
+	}
+	dk, err := NewSqliteDeviceKeysTable(db)
+	if err != nil {
+		return nil, err
+	}
+	kc, err := NewSqliteKeyChangesTable(db)
+	if err != nil {
+		return nil, err
+	}
+	sdl, err := NewSqliteStaleDeviceListsTable(db)
+	if err != nil {
+		return nil, err
+	}
+	csk, err := NewSqliteCrossSigningKeysTable(db)
+	if err != nil {
+		return nil, err
+	}
+	css, err := NewSqliteCrossSigningSigsTable(db)
+	if err != nil {
+		return nil, err
+	}
+
+	return &shared.KeyDatabase{
+		OneTimeKeysTable:      otk,
+		DeviceKeysTable:       dk,
+		KeyChangesTable:       kc,
+		StaleDeviceListsTable: sdl,
+		CrossSigningKeysTable: csk,
+		CrossSigningSigsTable: css,
+		Writer:                writer,
 	}, nil
 }
