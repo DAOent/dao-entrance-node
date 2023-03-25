@@ -9,6 +9,8 @@ DIR="$( cd -P "$( dirname "$SOURCE"  )" && pwd  )"
 
 cd "$DIR/../"
 
+rm "$DIR/../bin/dendrite"
+
 CGO_ENABLED=1 go build -trimpath -ldflags "$FLAGS" -v -o "bin/" ./cmd/...
 
 cd "$DIR/../bin"
@@ -16,4 +18,4 @@ cd "$DIR/../bin"
 
 
 # PPROFLISTEN=localhost:65432 DENDRITE_TRACE_SQL=1 
-./dendrite-monolith-server --tls-cert server.crt --tls-key server.key --config im.yaml
+./dendrite --tls-cert server.crt --tls-key server.key --config dev.yaml

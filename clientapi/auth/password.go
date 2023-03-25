@@ -16,10 +16,12 @@ package auth
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
 	"github.com/matrix-org/dendrite/clientapi/auth/authtypes"
+	"github.com/matrix-org/dendrite/clientapi/chain"
 	"github.com/matrix-org/dendrite/clientapi/httputil"
 	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/clientapi/userutil"
@@ -61,6 +63,45 @@ func (t *LoginTypePassword) LoginFromJSON(ctx context.Context, reqBytes []byte) 
 
 func (t *LoginTypePassword) Login(ctx context.Context, req interface{}) (*Login, *util.JSONResponse) {
 	r := req.(*PasswordRequest)
+
+	// WETEE 获取公钥
+
+	// WETEE 获取公钥
+	signs := strings.Split(r.Password, "||")
+	keyHex := strings.TrimPrefix(r.Identifier.User, "0x")
+	key, _ := hex.DecodeString(keyHex)
+	address := chain.SS58Encode(key, 42)
+
+	pubkey, chainerr := chain.NewSrPubKeyFromSS58Address(address)
+	if chainerr != nil || signs[0] == "" {
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: jsonerror.Unknown("Unable to fetch account by password."),
+		}
+	}
+
+	// 解析16进制签名
+	signature := strings.TrimPrefix(signs[1], "0x")
+	sig, chainerr := hex.DecodeString(signature)
+	if chainerr != nil {
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: jsonerror.Unknown("Unable to fetch account by password."),
+		}
+	}
+
+	// 验证签名
+	var ok = pubkey.Verify([]byte(signs[0]), sig)
+	if !ok {
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: jsonerror.Unknown("Unable to fetch account by password."),
+		}
+	}
+
+	r.Password = "web3"
+	// WETEE END
+
 	username := r.Username()
 	if username == "" {
 		return nil, &util.JSONResponse{
