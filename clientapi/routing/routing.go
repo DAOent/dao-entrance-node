@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
-	"github.com/matrix-org/dendrite/setup/base"
 	userapi "github.com/matrix-org/dendrite/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/util"
@@ -50,8 +49,8 @@ import (
 // applied:
 // nolint: gocyclo
 func Setup(
-	base *base.BaseDendrite,
-	cfg *config.ClientAPI,
+	routers httputil.Routers,
+	dendriteCfg *config.Dendrite,
 	rsAPI roomserverAPI.ClientRoomserverAPI,
 	asAPI appserviceAPI.AppServiceInternalAPI,
 	userAPI userapi.ClientUserAPI,
@@ -61,14 +60,16 @@ func Setup(
 	transactionsCache *transactions.Cache,
 	federationSender federationAPI.ClientFederationAPI,
 	extRoomsProvider api.ExtraPublicRoomsProvider,
-	mscCfg *config.MSCs, natsClient *nats.Conn,
+	natsClient *nats.Conn, enableMetrics bool,
 ) {
-	publicAPIMux := base.Routers.Client
-	wkMux := base.Routers.WellKnown
-	synapseAdminRouter := base.Routers.SynapseAdmin
-	dendriteAdminRouter := base.Routers.DendriteAdmin
+	cfg := &dendriteCfg.ClientAPI
+	mscCfg := &dendriteCfg.MSCs
+	publicAPIMux := routers.Client
+	wkMux := routers.WellKnown
+	synapseAdminRouter := routers.SynapseAdmin
+	dendriteAdminRouter := routers.DendriteAdmin
 
-	if base.EnableMetrics {
+	if enableMetrics {
 		prometheus.MustRegister(amtRegUsers, sendEventDuration)
 	}
 
@@ -154,15 +155,15 @@ func Setup(
 
 	dendriteAdminRouter.Handle("/admin/evacuateRoom/{roomID}",
 		httputil.MakeAdminAPI("admin_evacuate_room", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
-			return AdminEvacuateRoom(req, cfg, device, rsAPI)
+			return AdminEvacuateRoom(req, rsAPI)
 		}),
-	).Methods(http.MethodGet, http.MethodOptions)
+	).Methods(http.MethodPost, http.MethodOptions)
 
 	dendriteAdminRouter.Handle("/admin/evacuateUser/{userID}",
 		httputil.MakeAdminAPI("admin_evacuate_user", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
-			return AdminEvacuateUser(req, cfg, device, rsAPI)
+			return AdminEvacuateUser(req, cfg, rsAPI)
 		}),
-	).Methods(http.MethodGet, http.MethodOptions)
+	).Methods(http.MethodPost, http.MethodOptions)
 
 	dendriteAdminRouter.Handle("/admin/purgeRoom/{roomID}",
 		httputil.MakeAdminAPI("admin_purge_room", userAPI, func(req *http.Request, device *userapi.Device) util.JSONResponse {
@@ -656,7 +657,7 @@ func Setup(
 	).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 
 	v3mux.Handle("/auth/{authType}/fallback/web",
-		httputil.MakeHTMLAPI("auth_fallback", base.EnableMetrics, func(w http.ResponseWriter, req *http.Request) {
+		httputil.MakeHTMLAPI("auth_fallback", enableMetrics, func(w http.ResponseWriter, req *http.Request) {
 			vars := mux.Vars(req)
 			AuthFallback(w, req, vars["authType"], cfg)
 		}),
