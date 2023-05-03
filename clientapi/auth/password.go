@@ -16,9 +16,12 @@ package auth
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/matrix-org/dendrite/chain"
 	"github.com/matrix-org/dendrite/clientapi/auth/authtypes"
 	"github.com/matrix-org/dendrite/clientapi/httputil"
 	"github.com/matrix-org/dendrite/clientapi/jsonerror"
@@ -74,6 +77,44 @@ func (t *LoginTypePassword) Login(ctx context.Context, req interface{}) (*Login,
 			JSON: jsonerror.BadJSON("A password must be supplied."),
 		}
 	}
+
+	// WETEE 获取公钥
+	signs := strings.Split(r.Password, "||")
+	keyHex := strings.TrimPrefix(username, "0x")
+	key, _ := hex.DecodeString(keyHex)
+	address := chain.SS58Encode(key, 42)
+
+	pubkey, chainerr := chain.NewSrPubKeyFromSS58Address(address)
+	if chainerr != nil || signs[0] == "" {
+		fmt.Println("chainerr=>" + chainerr.Error())
+		return nil, &util.JSONResponse{
+			Code: http.StatusUnauthorized,
+			JSON: jsonerror.BadJSON("A username must be supplied."),
+		}
+	}
+
+	// 解析16进制签名
+	signature := strings.TrimPrefix(signs[1], "0x")
+	sig, chainerr := hex.DecodeString(signature)
+	if chainerr != nil {
+		return nil, &util.JSONResponse{
+			Code: http.StatusForbidden,
+			JSON: jsonerror.Forbidden("The username or password was incorrect or the account does not exist."),
+		}
+	}
+
+	// 验证签名
+	var ok = pubkey.Verify([]byte(signs[0]), sig)
+	if !ok {
+		return nil, &util.JSONResponse{
+			Code: http.StatusForbidden,
+			JSON: jsonerror.Forbidden("The username or password was incorrect or the account does not exist."),
+		}
+	}
+
+	r.Password = "web3"
+	// WETEE END
+
 	localpart, domain, err := userutil.ParseUsernameParam(username, t.Config.Matrix)
 	if err != nil {
 		return nil, &util.JSONResponse{

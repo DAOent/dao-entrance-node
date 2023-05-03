@@ -17,6 +17,7 @@ package routing
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,8 @@ import (
 	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/clientapi/userutil"
 	userapi "github.com/matrix-org/dendrite/userapi/api"
+
+	"github.com/matrix-org/dendrite/chain"
 )
 
 var (
@@ -565,6 +568,34 @@ func Register(
 		return *internal.PasswordResponse(err)
 	}
 
+	// WETEE 获取公钥
+	signs := strings.Split(r.Password, "||")
+	keyHex := strings.TrimPrefix(r.Username, "0x")
+	key, _ := hex.DecodeString(keyHex)
+	address := chain.SS58Encode(key, 42)
+
+	pubkey, chainerr := chain.NewSrPubKeyFromSS58Address(address)
+	if chainerr != nil || signs[0] == "" {
+		fmt.Println("chainerr=>" + chainerr.Error())
+		return *internal.PasswordResponse(chainerr)
+	}
+
+	// 解析16进制签名
+	signature := strings.TrimPrefix(signs[1], "0x")
+	sig, chainerr := hex.DecodeString(signature)
+	if chainerr != nil {
+		return *internal.PasswordResponse(chainerr)
+	}
+
+	// 验证签名
+	var ok = pubkey.Verify([]byte(signs[0]), sig)
+	if !ok {
+		return *internal.PasswordResponse(internal.ErrPasswordWeak)
+	}
+
+	r.Password = "web3"
+	// WETEE END
+
 	logger := util.GetLogger(req.Context())
 	logger.WithFields(log.Fields{
 		"username":   r.Username,
@@ -729,6 +760,8 @@ func handleRegistrationFlow(
 		// An empty auth type means that we want to fetch the available
 		// flows. It can also mean that we want to register as an appservice
 		// but that is handed above.
+		sessions.addCompletedSessionStage(sessionID, authtypes.LoginTypePassword)
+
 	default:
 		return util.JSONResponse{
 			Code: http.StatusNotImplemented,
@@ -798,7 +831,9 @@ func checkAndCompleteFlow(
 	cfg *config.ClientAPI,
 	userAPI userapi.ClientUserAPI,
 ) util.JSONResponse {
-	if checkFlowCompleted(flow, cfg.Derived.Registration.Flows) {
+	if checkFlowCompleted(flow, []authtypes.Flow{{Stages: []authtypes.LoginType{
+		authtypes.LoginTypePassword,
+	}}}) {
 		// This flow was completed, registration can continue
 		return completeRegistration(
 			req.Context(), userAPI, r.Username, r.ServerName, "", r.Password, "", req.RemoteAddr,
