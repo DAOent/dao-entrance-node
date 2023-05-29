@@ -404,7 +404,7 @@ func mustCreateEvent(t *testing.T, ev fledglingEvent) (result *types.HeaderedEve
 	roomVer := gomatrixserverlib.RoomVersionV9
 	seed := make([]byte, ed25519.SeedSize) // zero seed
 	key := ed25519.NewKeyFromSeed(seed)
-	eb := gomatrixserverlib.EventBuilder{
+	eb := gomatrixserverlib.MustGetRoomVersion(roomVer).NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
 		Sender:     ev.Sender,
 		Type:       ev.Type,
 		StateKey:   ev.StateKey,
@@ -412,12 +412,13 @@ func mustCreateEvent(t *testing.T, ev fledglingEvent) (result *types.HeaderedEve
 		Redacts:    ev.Redacts,
 		Depth:      ev.Depth,
 		PrevEvents: ev.PrevEvents,
-	}
+	})
 	err := eb.SetContent(map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("mustCreateEvent: failed to marshal event content %v", err)
 	}
-	signedEvent, err := eb.Build(time.Now(), "localhost", "ed25519:test", key, roomVer)
+
+	signedEvent, err := eb.Build(time.Now(), "localhost", "ed25519:test", key)
 	if err != nil {
 		t.Fatalf("mustCreateEvent: failed to sign event: %s", err)
 	}
@@ -570,7 +571,7 @@ func TestRedaction(t *testing.T) {
 					if ev.Type() == spec.MRoomRedaction {
 						nids, err := db.EventNIDs(ctx, []string{ev.Redacts()})
 						assert.NoError(t, err)
-						evs, err := db.Events(ctx, roomInfo, []types.EventNID{nids[ev.Redacts()].EventNID})
+						evs, err := db.Events(ctx, roomInfo.RoomVersion, []types.EventNID{nids[ev.Redacts()].EventNID})
 						assert.NoError(t, err)
 						assert.Equal(t, 1, len(evs))
 						assert.Equal(t, tc.wantRedacted, evs[0].Redacted())

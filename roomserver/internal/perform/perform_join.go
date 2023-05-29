@@ -145,7 +145,7 @@ func (r *Joiner) performJoinRoomByAlias(
 	return r.performJoinRoomByID(ctx, req)
 }
 
-// TODO: Break this function up a bit
+// TODO: Break this function up a bit & move to GMSL
 // nolint:gocyclo
 func (r *Joiner) performJoinRoomByID(
 	ctx context.Context,
@@ -180,14 +180,14 @@ func (r *Joiner) performJoinRoomByID(
 	if err != nil {
 		return "", "", rsAPI.ErrInvalidID{Err: fmt.Errorf("user ID %q is invalid: %w", userID, err)}
 	}
-	eb := gomatrixserverlib.EventBuilder{
+	proto := gomatrixserverlib.ProtoEvent{
 		Type:     spec.MRoomMember,
 		Sender:   userID,
 		StateKey: &userID,
 		RoomID:   req.RoomIDOrAlias,
 		Redacts:  "",
 	}
-	if err = eb.SetUnsigned(struct{}{}); err != nil {
+	if err = proto.SetUnsigned(struct{}{}); err != nil {
 		return "", "", fmt.Errorf("eb.SetUnsigned: %w", err)
 	}
 
@@ -203,7 +203,7 @@ func (r *Joiner) performJoinRoomByID(
 	} else if authorisedVia != "" {
 		req.Content["join_authorised_via_users_server"] = authorisedVia
 	}
-	if err = eb.SetContent(req.Content); err != nil {
+	if err = proto.SetContent(req.Content); err != nil {
 		return "", "", fmt.Errorf("eb.SetContent: %w", err)
 	}
 
@@ -284,9 +284,9 @@ func (r *Joiner) performJoinRoomByID(
 	if err != nil {
 		return "", "", fmt.Errorf("error joining local room: %q", err)
 	}
-	event, err := eventutil.QueryAndBuildEvent(ctx, &eb, r.Cfg.Matrix, identity, time.Now(), r.RSAPI, &buildRes)
+	event, err := eventutil.QueryAndBuildEvent(ctx, &proto, r.Cfg.Matrix, identity, time.Now(), r.RSAPI, &buildRes)
 
-	switch err {
+	switch err.(type) {
 	case nil:
 		// The room join is local. Send the new join event into the
 		// roomserver. First of all check that the user isn't already
@@ -313,9 +313,7 @@ func (r *Joiner) performJoinRoomByID(
 				},
 			}
 			inputRes := rsAPI.InputRoomEventsResponse{}
-			if err = r.Inputer.InputRoomEvents(ctx, &inputReq, &inputRes); err != nil {
-				return "", "", rsAPI.ErrNotAllowed{Err: err}
-			}
+			r.Inputer.InputRoomEvents(ctx, &inputReq, &inputRes)
 			if err = inputRes.Err(); err != nil {
 				return "", "", rsAPI.ErrNotAllowed{Err: err}
 			}
@@ -330,7 +328,7 @@ func (r *Joiner) performJoinRoomByID(
 			// Otherwise we'll try a federated join as normal, since it's quite
 			// possible that the room still exists on other servers.
 			if len(req.ServerNames) == 0 {
-				return "", "", eventutil.ErrRoomNoExists
+				return "", "", eventutil.ErrRoomNoExists{}
 			}
 		}
 

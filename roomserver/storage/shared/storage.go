@@ -392,24 +392,28 @@ func (d *EventDatabase) eventsFromIDs(ctx context.Context, txn *sql.Tx, roomInfo
 		nids = append(nids, nid.EventNID)
 	}
 
-	return d.events(ctx, txn, roomInfo, nids)
+	if roomInfo == nil {
+		return nil, types.ErrorInvalidRoomInfo
+	}
+	return d.events(ctx, txn, roomInfo.RoomVersion, nids)
 }
 
-func (d *Database) LatestEventIDs(
-	ctx context.Context, roomNID types.RoomNID,
-) (references []gomatrixserverlib.EventReference, currentStateSnapshotNID types.StateSnapshotNID, depth int64, err error) {
+func (d *Database) LatestEventIDs(ctx context.Context, roomNID types.RoomNID) (references []string, currentStateSnapshotNID types.StateSnapshotNID, depth int64, err error) {
 	var eventNIDs []types.EventNID
 	eventNIDs, currentStateSnapshotNID, err = d.RoomsTable.SelectLatestEventNIDs(ctx, nil, roomNID)
 	if err != nil {
 		return
 	}
-	references, err = d.EventsTable.BulkSelectEventReference(ctx, nil, eventNIDs)
+	eventNIDMap, err := d.EventsTable.BulkSelectEventID(ctx, nil, eventNIDs)
 	if err != nil {
 		return
 	}
 	depth, err = d.EventsTable.SelectMaxEventDepth(ctx, nil, eventNIDs)
 	if err != nil {
 		return
+	}
+	for _, eventID := range eventNIDMap {
+		references = append(references, eventID)
 	}
 	return
 }
@@ -531,19 +535,15 @@ func (d *Database) GetInvitesForUser(
 	return d.InvitesTable.SelectInviteActiveForUserInRoom(ctx, nil, targetUserNID, roomNID)
 }
 
-func (d *EventDatabase) Events(ctx context.Context, roomInfo *types.RoomInfo, eventNIDs []types.EventNID) ([]types.Event, error) {
-	return d.events(ctx, nil, roomInfo, eventNIDs)
+func (d *EventDatabase) Events(ctx context.Context, roomVersion gomatrixserverlib.RoomVersion, eventNIDs []types.EventNID) ([]types.Event, error) {
+	return d.events(ctx, nil, roomVersion, eventNIDs)
 }
 
 func (d *EventDatabase) events(
-	ctx context.Context, txn *sql.Tx, roomInfo *types.RoomInfo, inputEventNIDs types.EventNIDs,
+	ctx context.Context, txn *sql.Tx, roomVersion gomatrixserverlib.RoomVersion, inputEventNIDs types.EventNIDs,
 ) ([]types.Event, error) {
-	if roomInfo == nil { // this should never happen
-		return nil, fmt.Errorf("unable to parse events without roomInfo")
-	}
-
 	sort.Sort(inputEventNIDs)
-	events := make(map[types.EventNID]*gomatrixserverlib.Event, len(inputEventNIDs))
+	events := make(map[types.EventNID]gomatrixserverlib.PDU, len(inputEventNIDs))
 	eventNIDs := make([]types.EventNID, 0, len(inputEventNIDs))
 	for _, nid := range inputEventNIDs {
 		if event, ok := d.Cache.GetRoomServerEvent(nid); ok && event != nil {
@@ -579,7 +579,7 @@ func (d *EventDatabase) events(
 		eventIDs = map[types.EventNID]string{}
 	}
 
-	verImpl, err := gomatrixserverlib.GetRoomVersion(roomInfo.RoomVersion)
+	verImpl, err := gomatrixserverlib.GetRoomVersion(roomVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +593,7 @@ func (d *EventDatabase) events(
 			return nil, err
 		}
 		if event := events[eventJSON.EventNID]; event != nil {
-			d.Cache.StoreRoomServerEvent(eventJSON.EventNID, event)
+			d.Cache.StoreRoomServerEvent(eventJSON.EventNID, &types.HeaderedEvent{PDU: event})
 		}
 	}
 	results := make([]types.Event, 0, len(inputEventNIDs))
@@ -743,7 +743,6 @@ func (d *EventDatabase) StoreEvent(
 			eventTypeNID,
 			eventStateKeyNID,
 			event.EventID(),
-			event.EventReference().EventSHA256,
 			authEventNIDs,
 			event.Depth(),
 			isRejected,
@@ -763,7 +762,7 @@ func (d *EventDatabase) StoreEvent(
 			return fmt.Errorf("d.EventJSONTable.InsertEventJSON: %w", err)
 		}
 
-		if prevEvents := event.PrevEvents(); len(prevEvents) > 0 {
+		if prevEvents := event.PrevEventIDs(); len(prevEvents) > 0 {
 			// Create an updater - NB: on sqlite this WILL create a txn as we are directly calling the shared DB form of
 			// GetLatestEventsForUpdate - not via the SQLiteDatabase form which has `nil` txns. This
 			// function only does SELECTs though so the created txn (at this point) is just a read txn like
@@ -771,8 +770,8 @@ func (d *EventDatabase) StoreEvent(
 			// to do writes however then this will need to go inside `Writer.Do`.
 
 			// The following is a copy of RoomUpdater.StorePreviousEvents
-			for _, ref := range prevEvents {
-				if err = d.PrevEventsTable.InsertPreviousEvent(ctx, txn, ref.EventID, ref.EventSHA256, eventNID); err != nil {
+			for _, eventID := range prevEvents {
+				if err = d.PrevEventsTable.InsertPreviousEvent(ctx, txn, eventID, eventNID); err != nil {
 					return fmt.Errorf("u.d.PrevEventsTable.InsertPreviousEvent: %w", err)
 				}
 			}
@@ -1107,7 +1106,10 @@ func (d *EventDatabase) loadEvent(ctx context.Context, roomInfo *types.RoomInfo,
 	if len(nids) == 0 {
 		return nil
 	}
-	evs, err := d.Events(ctx, roomInfo, []types.EventNID{nids[eventID].EventNID})
+	if roomInfo == nil {
+		return nil
+	}
+	evs, err := d.Events(ctx, roomInfo.RoomVersion, []types.EventNID{nids[eventID].EventNID})
 	if err != nil {
 		return nil
 	}

@@ -75,7 +75,7 @@ func NewRoom(t *testing.T, creator *User, modifiers ...roomModifier) *Room {
 	return r
 }
 
-func (r *Room) MustGetAuthEventRefsForEvent(t *testing.T, needed gomatrixserverlib.StateNeeded) []gomatrixserverlib.EventReference {
+func (r *Room) MustGetAuthEventRefsForEvent(t *testing.T, needed gomatrixserverlib.StateNeeded) []string {
 	t.Helper()
 	a, err := needed.AuthEventReferences(&r.authEvents)
 	if err != nil {
@@ -163,32 +163,26 @@ func (r *Room) CreateEvent(t *testing.T, creator *User, eventType string, conten
 		}
 	}
 
-	builder := &gomatrixserverlib.EventBuilder{
+	builder := gomatrixserverlib.MustGetRoomVersion(r.Version).NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
 		Sender:   creator.ID,
 		RoomID:   r.ID,
 		Type:     eventType,
 		StateKey: mod.stateKey,
 		Depth:    int64(depth),
 		Unsigned: unsigned,
-	}
+	})
 	err = builder.SetContent(content)
 	if err != nil {
 		t.Fatalf("CreateEvent[%s]: failed to SetContent: %s", eventType, err)
 	}
 	if depth > 1 {
-		builder.PrevEvents = []gomatrixserverlib.EventReference{r.events[len(r.events)-1].EventReference()}
+		builder.PrevEvents = []string{r.events[len(r.events)-1].EventID()}
 	}
 
-	eventsNeeded, err := gomatrixserverlib.StateNeededForEventBuilder(builder)
-	if err != nil {
-		t.Fatalf("CreateEvent[%s]: failed to StateNeededForEventBuilder: %s", eventType, err)
-	}
-
-	refs, err := eventsNeeded.AuthEventReferences(&r.authEvents)
+	err = builder.AddAuthEvents(&r.authEvents)
 	if err != nil {
 		t.Fatalf("CreateEvent[%s]: failed to AuthEventReferences: %s", eventType, err)
 	}
-	builder.AuthEvents = refs
 
 	if len(mod.authEvents) > 0 {
 		builder.AuthEvents = mod.authEvents
@@ -196,7 +190,7 @@ func (r *Room) CreateEvent(t *testing.T, creator *User, eventType string, conten
 
 	ev, err := builder.Build(
 		mod.originServerTS, mod.origin, mod.keyID,
-		mod.privKey, r.Version,
+		mod.privKey,
 	)
 	if err != nil {
 		t.Fatalf("CreateEvent[%s]: failed to build event: %s", eventType, err)

@@ -52,7 +52,7 @@ func (r *Admin) PerformAdminEvacuateRoom(
 		return nil, err
 	}
 	if roomInfo == nil || roomInfo.IsStub() {
-		return nil, eventutil.ErrRoomNoExists
+		return nil, eventutil.ErrRoomNoExists{}
 	}
 
 	memberNIDs, err := r.DB.GetMembershipEventNIDsForRoom(ctx, roomInfo.RoomNID, true, true)
@@ -60,7 +60,7 @@ func (r *Admin) PerformAdminEvacuateRoom(
 		return nil, err
 	}
 
-	memberEvents, err := r.DB.Events(ctx, roomInfo, memberNIDs)
+	memberEvents, err := r.DB.Events(ctx, roomInfo.RoomVersion, memberNIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (r *Admin) PerformAdminEvacuateRoom(
 		memberContent.Membership = spec.Leave
 
 		stateKey := *memberEvent.StateKey()
-		fledglingEvent := &gomatrixserverlib.EventBuilder{
+		fledglingEvent := &gomatrixserverlib.ProtoEvent{
 			RoomID:     roomID,
 			Type:       spec.MRoomMember,
 			StateKey:   &stateKey,
@@ -109,7 +109,7 @@ func (r *Admin) PerformAdminEvacuateRoom(
 			return nil, err
 		}
 
-		eventsNeeded, err = gomatrixserverlib.StateNeededForEventBuilder(fledglingEvent)
+		eventsNeeded, err = gomatrixserverlib.StateNeededForProtoEvent(fledglingEvent)
 		if err != nil {
 			return nil, err
 		}
@@ -131,9 +131,7 @@ func (r *Admin) PerformAdminEvacuateRoom(
 			SendAsServer: string(senderDomain),
 		})
 		affected = append(affected, stateKey)
-		prevEvents = []gomatrixserverlib.EventReference{
-			event.EventReference(),
-		}
+		prevEvents = []string{event.EventID()}
 	}
 
 	inputReq := &api.InputRoomEventsRequest{
@@ -141,8 +139,8 @@ func (r *Admin) PerformAdminEvacuateRoom(
 		Asynchronous:    true,
 	}
 	inputRes := &api.InputRoomEventsResponse{}
-	err = r.Inputer.InputRoomEvents(ctx, inputReq, inputRes)
-	return affected, err
+	r.Inputer.InputRoomEvents(ctx, inputReq, inputRes)
+	return affected, nil
 }
 
 // PerformAdminEvacuateUser will remove the given user from all rooms.
@@ -240,7 +238,7 @@ func (r *Admin) PerformAdminDownloadState(
 	}
 
 	if roomInfo == nil || roomInfo.IsStub() {
-		return eventutil.ErrRoomNoExists
+		return eventutil.ErrRoomNoExists{}
 	}
 
 	fwdExtremities, _, depth, err := r.DB.LatestEventIDs(ctx, roomInfo.RoomNID)
@@ -253,9 +251,9 @@ func (r *Admin) PerformAdminDownloadState(
 
 	for _, fwdExtremity := range fwdExtremities {
 		var state gomatrixserverlib.StateResponse
-		state, err = r.Inputer.FSAPI.LookupState(ctx, r.Inputer.ServerName, serverName, roomID, fwdExtremity.EventID, roomInfo.RoomVersion)
+		state, err = r.Inputer.FSAPI.LookupState(ctx, r.Inputer.ServerName, serverName, roomID, fwdExtremity, roomInfo.RoomVersion)
 		if err != nil {
-			return fmt.Errorf("r.Inputer.FSAPI.LookupState (%q): %s", fwdExtremity.EventID, err)
+			return fmt.Errorf("r.Inputer.FSAPI.LookupState (%q): %s", fwdExtremity, err)
 		}
 		for _, authEvent := range state.GetAuthEvents().UntrustedEvents(roomInfo.RoomVersion) {
 			if err = gomatrixserverlib.VerifyEventSignatures(ctx, authEvent, r.Inputer.KeyRing); err != nil {
@@ -283,16 +281,16 @@ func (r *Admin) PerformAdminDownloadState(
 		stateIDs = append(stateIDs, stateEvent.EventID())
 	}
 
-	builder := &gomatrixserverlib.EventBuilder{
+	proto := &gomatrixserverlib.ProtoEvent{
 		Type:    "org.matrix.dendrite.state_download",
 		Sender:  userID,
 		RoomID:  roomID,
 		Content: spec.RawJSON("{}"),
 	}
 
-	eventsNeeded, err := gomatrixserverlib.StateNeededForEventBuilder(builder)
+	eventsNeeded, err := gomatrixserverlib.StateNeededForProtoEvent(proto)
 	if err != nil {
-		return fmt.Errorf("gomatrixserverlib.StateNeededForEventBuilder: %w", err)
+		return fmt.Errorf("gomatrixserverlib.StateNeededForProtoEvent: %w", err)
 	}
 
 	queryRes := &api.QueryLatestEventsAndStateResponse{
@@ -308,7 +306,7 @@ func (r *Admin) PerformAdminDownloadState(
 		return err
 	}
 
-	ev, err := eventutil.BuildEvent(ctx, builder, r.Cfg.Matrix, identity, time.Now(), &eventsNeeded, queryRes)
+	ev, err := eventutil.BuildEvent(ctx, proto, r.Cfg.Matrix, identity, time.Now(), &eventsNeeded, queryRes)
 	if err != nil {
 		return fmt.Errorf("eventutil.BuildEvent: %w", err)
 	}
@@ -334,9 +332,7 @@ func (r *Admin) PerformAdminDownloadState(
 		SendAsServer:  string(r.Cfg.Matrix.ServerName),
 	})
 
-	if err = r.Inputer.InputRoomEvents(ctx, inputReq, inputRes); err != nil {
-		return fmt.Errorf("r.Inputer.InputRoomEvents: %w", err)
-	}
+	r.Inputer.InputRoomEvents(ctx, inputReq, inputRes)
 
 	if inputRes.ErrMsg != "" {
 		return inputRes.Err()

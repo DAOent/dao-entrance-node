@@ -398,7 +398,10 @@ func (t *missingStateReq) lookupStateAfterEventLocally(ctx context.Context, even
 	for _, entry := range stateEntries {
 		stateEventNIDs = append(stateEventNIDs, entry.EventNID)
 	}
-	stateEvents, err := t.db.Events(ctx, t.roomInfo, stateEventNIDs)
+	if t.roomInfo == nil {
+		return nil
+	}
+	stateEvents, err := t.db.Events(ctx, t.roomInfo.RoomVersion, stateEventNIDs)
 	if err != nil {
 		t.log.WithError(err).Warnf("failed to load state events locally")
 		return nil
@@ -517,9 +520,9 @@ func (t *missingStateReq) getMissingEvents(ctx context.Context, e gomatrixserver
 		return nil, false, false, fmt.Errorf("t.DB.LatestEventIDs: %w", err)
 	}
 	latestEvents := make([]string, len(latest))
-	for i, ev := range latest {
-		latestEvents[i] = ev.EventID
-		t.hadEvent(ev.EventID)
+	for i := range latest {
+		latestEvents[i] = latest[i]
+		t.hadEvent(latest[i])
 	}
 
 	var missingResp *fclient.RespMissingEvents
@@ -856,7 +859,7 @@ func (t *missingStateReq) lookupEvent(ctx context.Context, roomVersion gomatrixs
 			return events[0].PDU, nil
 		}
 	}
-	var event *gomatrixserverlib.Event
+	var event gomatrixserverlib.PDU
 	found := false
 	for _, serverName := range t.servers {
 		reqctx, cancel := context.WithTimeout(ctx, time.Second*30)

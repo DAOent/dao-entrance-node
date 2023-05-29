@@ -226,9 +226,7 @@ func (r *Inviter) PerformInvite(
 		},
 	}
 	inputRes := &api.InputRoomEventsResponse{}
-	if err = r.Inputer.InputRoomEvents(context.Background(), inputReq, inputRes); err != nil {
-		return nil, fmt.Errorf("r.Inputer.InputRoomEvents: %w", err)
-	}
+	r.Inputer.InputRoomEvents(context.Background(), inputReq, inputRes)
 	if err = inputRes.Err(); err != nil {
 		logger.WithError(err).WithField("event_id", event.EventID()).Error("r.InputRoomEvents failed")
 		return nil, api.ErrNotAllowed{Err: err}
@@ -269,7 +267,10 @@ func buildInviteStrippedState(
 	for _, stateNID := range stateEntries {
 		stateNIDs = append(stateNIDs, stateNID.EventNID)
 	}
-	stateEvents, err := db.Events(ctx, info, stateNIDs)
+	if info == nil {
+		return nil, types.ErrorInvalidRoomInfo
+	}
+	stateEvents, err := db.Events(ctx, info.RoomVersion, stateNIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -86,7 +86,7 @@ func IsServerCurrentlyInRoom(ctx context.Context, db storage.Database, serverNam
 		return false, err
 	}
 
-	events, err := db.Events(ctx, info, eventNIDs)
+	events, err := db.Events(ctx, info.RoomVersion, eventNIDs)
 	if err != nil {
 		return false, err
 	}
@@ -100,7 +100,7 @@ func IsServerCurrentlyInRoom(ctx context.Context, db storage.Database, serverNam
 func IsInvitePending(
 	ctx context.Context, db storage.Database,
 	roomID, userID string,
-) (bool, string, string, *gomatrixserverlib.Event, error) {
+) (bool, string, string, gomatrixserverlib.PDU, error) {
 	// Look up the room NID for the supplied room ID.
 	info, err := db.RoomInfo(ctx, roomID)
 	if err != nil {
@@ -183,7 +183,10 @@ func GetMembershipsAtState(
 	util.Unique(eventNIDs)
 
 	// Get all of the events in this state
-	stateEvents, err := db.Events(ctx, roomInfo, eventNIDs)
+	if roomInfo == nil {
+		return nil, types.ErrorInvalidRoomInfo
+	}
+	stateEvents, err := db.Events(ctx, roomInfo.RoomVersion, eventNIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +238,10 @@ func MembershipAtEvent(ctx context.Context, db storage.RoomDatabase, info *types
 func LoadEvents(
 	ctx context.Context, db storage.RoomDatabase, roomInfo *types.RoomInfo, eventNIDs []types.EventNID,
 ) ([]gomatrixserverlib.PDU, error) {
-	stateEvents, err := db.Events(ctx, roomInfo, eventNIDs)
+	if roomInfo == nil {
+		return nil, types.ErrorInvalidRoomInfo
+	}
+	stateEvents, err := db.Events(ctx, roomInfo.RoomVersion, eventNIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/matrix-org/dendrite/clientapi/httputil"
-	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/internal/eventutil"
 	"github.com/matrix-org/dendrite/internal/transactions"
 	"github.com/matrix-org/dendrite/roomserver/api"
@@ -81,7 +80,7 @@ func SendEvent(
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.UnsupportedRoomVersion(err.Error()),
+			JSON: spec.UnsupportedRoomVersion(err.Error()),
 		}
 	}
 
@@ -126,7 +125,7 @@ func SendEvent(
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.InvalidArgumentValue(err.Error()),
+			JSON: spec.InvalidParam(err.Error()),
 		}
 	}
 
@@ -145,12 +144,15 @@ func SendEvent(
 		if !aliasReq.Valid() {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.InvalidParam("Request contains invalid aliases."),
+				JSON: spec.InvalidParam("Request contains invalid aliases."),
 			}
 		}
 		aliasRes := &api.GetAliasesForRoomIDResponse{}
 		if err = rsAPI.GetAliasesForRoomID(req.Context(), &api.GetAliasesForRoomIDRequest{RoomID: roomID}, aliasRes); err != nil {
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 		var found int
 		requestAliases := append(aliasReq.AltAliases, aliasReq.Alias)
@@ -165,7 +167,7 @@ func SendEvent(
 		if aliasReq.Alias != "" && found < len(requestAliases) {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.BadAlias("No matching alias found."),
+				JSON: spec.BadAlias("No matching alias found."),
 			}
 		}
 	}
@@ -194,7 +196,10 @@ func SendEvent(
 		false,
 	); err != nil {
 		util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 	timeToSubmitEvent := time.Since(startedSubmittingEvent)
 	util.GetLogger(req.Context()).WithFields(logrus.Fields{
@@ -264,52 +269,60 @@ func generateSendEvent(
 	userID := device.UserID
 
 	// create the new event and set all the fields we can
-	builder := gomatrixserverlib.EventBuilder{
+	proto := gomatrixserverlib.ProtoEvent{
 		Sender:   userID,
 		RoomID:   roomID,
 		Type:     eventType,
 		StateKey: stateKey,
 	}
-	err := builder.SetContent(r)
+	err := proto.SetContent(r)
 	if err != nil {
-		util.GetLogger(ctx).WithError(err).Error("builder.SetContent failed")
-		resErr := jsonerror.InternalServerError()
-		return nil, &resErr
+		util.GetLogger(ctx).WithError(err).Error("proto.SetContent failed")
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	identity, err := cfg.Matrix.SigningIdentityFor(device.UserDomain())
 	if err != nil {
-		resErr := jsonerror.InternalServerError()
-		return nil, &resErr
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	var queryRes api.QueryLatestEventsAndStateResponse
-	e, err := eventutil.QueryAndBuildEvent(ctx, &builder, cfg.Matrix, identity, evTime, rsAPI, &queryRes)
-	if err == eventutil.ErrRoomNoExists {
+	e, err := eventutil.QueryAndBuildEvent(ctx, &proto, cfg.Matrix, identity, evTime, rsAPI, &queryRes)
+	switch specificErr := err.(type) {
+	case nil:
+	case eventutil.ErrRoomNoExists:
 		return nil, &util.JSONResponse{
 			Code: http.StatusNotFound,
-			JSON: jsonerror.NotFound("Room does not exist"),
+			JSON: spec.NotFound("Room does not exist"),
 		}
-	} else if e, ok := err.(gomatrixserverlib.BadJSONError); ok {
+	case gomatrixserverlib.BadJSONError:
 		return nil, &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON(e.Error()),
+			JSON: spec.BadJSON(specificErr.Error()),
 		}
-	} else if e, ok := err.(gomatrixserverlib.EventValidationError); ok {
-		if e.Code == gomatrixserverlib.EventValidationTooLarge {
+	case gomatrixserverlib.EventValidationError:
+		if specificErr.Code == gomatrixserverlib.EventValidationTooLarge {
 			return nil, &util.JSONResponse{
 				Code: http.StatusRequestEntityTooLarge,
-				JSON: jsonerror.BadJSON(e.Error()),
+				JSON: spec.BadJSON(specificErr.Error()),
 			}
 		}
 		return nil, &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON(e.Error()),
+			JSON: spec.BadJSON(specificErr.Error()),
 		}
-	} else if err != nil {
+	default:
 		util.GetLogger(ctx).WithError(err).Error("eventutil.BuildEvent failed")
-		resErr := jsonerror.InternalServerError()
-		return nil, &resErr
+		return nil, &util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	// check to see if this user can perform this operation
@@ -321,7 +334,7 @@ func generateSendEvent(
 	if err = gomatrixserverlib.Allowed(e.PDU, &provider); err != nil {
 		return nil, &util.JSONResponse{
 			Code: http.StatusForbidden,
-			JSON: jsonerror.Forbidden(err.Error()), // TODO: Is this error string comprehensible to the client?
+			JSON: spec.Forbidden(err.Error()), // TODO: Is this error string comprehensible to the client?
 		}
 	}
 
@@ -332,13 +345,13 @@ func generateSendEvent(
 			util.GetLogger(ctx).WithError(err).Error("Cannot unmarshal the event content.")
 			return nil, &util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.BadJSON("Cannot unmarshal the event content."),
+				JSON: spec.BadJSON("Cannot unmarshal the event content."),
 			}
 		}
 		if content["replacement_room"] == e.RoomID() {
 			return nil, &util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.InvalidParam("Cannot send tombstone event that points to the same room."),
+				JSON: spec.InvalidParam("Cannot send tombstone event that points to the same room."),
 			}
 		}
 	}

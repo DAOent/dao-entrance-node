@@ -17,6 +17,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -199,7 +200,7 @@ func (s StateAtEvent) IsStateEvent() bool {
 // The StateAtEvent is used to construct the current state of the room from the latest events.
 type StateAtEventAndReference struct {
 	StateAtEvent
-	gomatrixserverlib.EventReference
+	EventID string
 }
 
 type StateAtEventAndReferences []StateAtEventAndReference
@@ -328,3 +329,5 @@ func (r *RoomInfo) CopyFrom(r2 *RoomInfo) {
 	r.stateSnapshotNID = r2.stateSnapshotNID
 	r.isStub = r2.isStub
 }
+
+var ErrorInvalidRoomInfo = fmt.Errorf("room info is invalid")

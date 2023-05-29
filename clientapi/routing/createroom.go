@@ -32,7 +32,6 @@ import (
 	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	"github.com/matrix-org/dendrite/clientapi/httputil"
-	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/internal/eventutil"
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/gomatrixserverlib"
@@ -75,7 +74,7 @@ func (r createRoomRequest) Validate() *util.JSONResponse {
 	if strings.ContainsAny(r.RoomAliasName, whitespace+":") {
 		return &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("room_alias_name cannot contain whitespace or ':'"),
+			JSON: spec.BadJSON("room_alias_name cannot contain whitespace or ':'"),
 		}
 	}
 	for _, userID := range r.Invite {
@@ -87,7 +86,7 @@ func (r createRoomRequest) Validate() *util.JSONResponse {
 		if _, _, err := gomatrixserverlib.SplitID('@', userID); err != nil {
 			return &util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.BadJSON("user id must be in the form @localpart:domain"),
+				JSON: spec.BadJSON("user id must be in the form @localpart:domain"),
 			}
 		}
 	}
@@ -96,7 +95,7 @@ func (r createRoomRequest) Validate() *util.JSONResponse {
 	default:
 		return &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("preset must be any of 'private_chat', 'trusted_private_chat', 'public_chat'"),
+			JSON: spec.BadJSON("preset must be any of 'private_chat', 'trusted_private_chat', 'public_chat'"),
 		}
 	}
 
@@ -108,7 +107,7 @@ func (r createRoomRequest) Validate() *util.JSONResponse {
 	if err != nil {
 		return &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("malformed creation_content"),
+			JSON: spec.BadJSON("malformed creation_content"),
 		}
 	}
 
@@ -117,7 +116,7 @@ func (r createRoomRequest) Validate() *util.JSONResponse {
 	if err != nil {
 		return &util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("malformed creation_content"),
+			JSON: spec.BadJSON("malformed creation_content"),
 		}
 	}
 
@@ -156,7 +155,7 @@ func CreateRoom(
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.InvalidArgumentValue(err.Error()),
+			JSON: spec.InvalidParam(err.Error()),
 		}
 	}
 	return createRoom(req.Context(), r, device, cfg, profileAPI, rsAPI, asAPI, evTime)
@@ -175,12 +174,15 @@ func createRoom(
 	_, userDomain, err := gomatrixserverlib.SplitID('@', device.UserID)
 	if err != nil {
 		util.GetLogger(ctx).WithError(err).Error("gomatrixserverlib.SplitID failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 	if !cfg.Matrix.IsLocalServerName(userDomain) {
 		return util.JSONResponse{
 			Code: http.StatusForbidden,
-			JSON: jsonerror.Forbidden(fmt.Sprintf("User domain %q not configured locally", userDomain)),
+			JSON: spec.Forbidden(fmt.Sprintf("User domain %q not configured locally", userDomain)),
 		}
 	}
 
@@ -200,7 +202,7 @@ func createRoom(
 		if roomVersionError != nil {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.UnsupportedRoomVersion(roomVersionError.Error()),
+				JSON: spec.UnsupportedRoomVersion(roomVersionError.Error()),
 			}
 		}
 		roomVersion = candidateVersion
@@ -219,7 +221,10 @@ func createRoom(
 	profile, err := appserviceAPI.RetrieveUserProfile(ctx, userID, asAPI, profileAPI)
 	if err != nil {
 		util.GetLogger(ctx).WithError(err).Error("appserviceAPI.RetrieveUserProfile failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	createContent := map[string]interface{}{}
@@ -228,7 +233,7 @@ func createRoom(
 			util.GetLogger(ctx).WithError(err).Error("json.Unmarshal for creation_content failed")
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.BadJSON("invalid create content"),
+				JSON: spec.BadJSON("invalid create content"),
 			}
 		}
 	}
@@ -249,7 +254,7 @@ func createRoom(
 			util.GetLogger(ctx).WithError(err).Error("json.Unmarshal for power_level_content_override failed")
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.BadJSON("malformed power_level_content_override"),
+				JSON: spec.BadJSON("malformed power_level_content_override"),
 			}
 		}
 	}
@@ -343,12 +348,15 @@ func createRoom(
 		err = rsAPI.GetRoomIDForAlias(ctx, &hasAliasReq, &aliasResp)
 		if err != nil {
 			util.GetLogger(ctx).WithError(err).Error("aliasAPI.GetRoomIDForAlias failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 		if aliasResp.RoomID != "" {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.RoomInUse("Room ID already exists."),
+				JSON: spec.RoomInUse("Room ID already exists."),
 			}
 		}
 
@@ -433,36 +441,60 @@ func createRoom(
 	// TODO: invite events
 	// TODO: 3pid invite events
 
+	verImpl, err := gomatrixserverlib.GetRoomVersion(roomVersion)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusBadRequest,
+			JSON: spec.BadJSON("unknown room version"),
+		}
+	}
+
 	var builtEvents []*types.HeaderedEvent
 	authEvents := gomatrixserverlib.NewAuthEvents(nil)
 	for i, e := range eventsToMake {
 		depth := i + 1 // depth starts at 1
 
-		builder := gomatrixserverlib.EventBuilder{
+		builder := verImpl.NewEventBuilderFromProtoEvent(&gomatrixserverlib.ProtoEvent{
 			Sender:   userID,
 			RoomID:   roomID,
 			Type:     e.Type,
 			StateKey: &e.StateKey,
 			Depth:    int64(depth),
-		}
+		})
 		err = builder.SetContent(e.Content)
 		if err != nil {
 			util.GetLogger(ctx).WithError(err).Error("builder.SetContent failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 		if i > 0 {
-			builder.PrevEvents = []gomatrixserverlib.EventReference{builtEvents[i-1].EventReference()}
+			builder.PrevEvents = []string{builtEvents[i-1].EventID()}
 		}
-		var ev *gomatrixserverlib.Event
-		ev, err = builder.AddAuthEventsAndBuild(userDomain, &authEvents, evTime, roomVersion, cfg.Matrix.KeyID, cfg.Matrix.PrivateKey)
+		var ev gomatrixserverlib.PDU
+		if err = builder.AddAuthEvents(&authEvents); err != nil {
+			util.GetLogger(ctx).WithError(err).Error("AddAuthEvents failed")
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
+		}
+		ev, err = builder.Build(evTime, userDomain, cfg.Matrix.KeyID, cfg.Matrix.PrivateKey)
 		if err != nil {
 			util.GetLogger(ctx).WithError(err).Error("buildEvent failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 
 		if err = gomatrixserverlib.Allowed(ev, &authEvents); err != nil {
 			util.GetLogger(ctx).WithError(err).Error("gomatrixserverlib.Allowed failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 
 		// Add the event to the list of auth events
@@ -470,7 +502,10 @@ func createRoom(
 		err = authEvents.AddEvent(ev)
 		if err != nil {
 			util.GetLogger(ctx).WithError(err).Error("authEvents.AddEvent failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 	}
 
@@ -485,7 +520,10 @@ func createRoom(
 	}
 	if err = roomserverAPI.SendInputRoomEvents(ctx, rsAPI, device.UserDomain(), inputs, false); err != nil {
 		util.GetLogger(ctx).WithError(err).Error("roomserverAPI.SendInputRoomEvents failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	// TODO(#269): Reserve room alias while we create the room. This stops us
@@ -502,13 +540,16 @@ func createRoom(
 		err = rsAPI.SetRoomAlias(ctx, &aliasReq, &aliasResp)
 		if err != nil {
 			util.GetLogger(ctx).WithError(err).Error("aliasAPI.SetRoomAlias failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 
 		if aliasResp.AliasExists {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.RoomInUse("Room alias already exists."),
+				JSON: spec.RoomInUse("Room alias already exists."),
 			}
 		}
 	}
@@ -572,12 +613,12 @@ func createRoom(
 			case roomserverAPI.ErrInvalidID:
 				return util.JSONResponse{
 					Code: http.StatusBadRequest,
-					JSON: jsonerror.Unknown(e.Error()),
+					JSON: spec.Unknown(e.Error()),
 				}
 			case roomserverAPI.ErrNotAllowed:
 				return util.JSONResponse{
 					Code: http.StatusForbidden,
-					JSON: jsonerror.Forbidden(e.Error()),
+					JSON: spec.Forbidden(e.Error()),
 				}
 			case nil:
 			default:
@@ -585,7 +626,7 @@ func createRoom(
 				sentry.CaptureException(err)
 				return util.JSONResponse{
 					Code: http.StatusInternalServerError,
-					JSON: jsonerror.InternalServerError(),
+					JSON: spec.InternalServerError{},
 				}
 			}
 		}
@@ -598,7 +639,10 @@ func createRoom(
 			Visibility: spec.Public,
 		}); err != nil {
 			util.GetLogger(ctx).WithError(err).Error("failed to publish room")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 	}
 

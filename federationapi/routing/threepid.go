@@ -22,17 +22,14 @@ import (
 	"time"
 
 	"github.com/matrix-org/dendrite/clientapi/httputil"
-	"github.com/matrix-org/dendrite/clientapi/jsonerror"
 	"github.com/matrix-org/dendrite/roomserver/api"
 	"github.com/matrix-org/dendrite/roomserver/types"
 	"github.com/matrix-org/dendrite/setup/config"
 	userapi "github.com/matrix-org/dendrite/userapi/api"
+	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/fclient"
 	"github.com/matrix-org/gomatrixserverlib/spec"
-
-	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/util"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -74,7 +71,7 @@ func CreateInvitesFrom3PIDInvites(
 		if err != nil {
 			return util.JSONResponse{
 				Code: http.StatusBadRequest,
-				JSON: jsonerror.UnsupportedRoomVersion(err.Error()),
+				JSON: spec.UnsupportedRoomVersion(err.Error()),
 			}
 		}
 
@@ -83,7 +80,10 @@ func CreateInvitesFrom3PIDInvites(
 		)
 		if err != nil {
 			util.GetLogger(req.Context()).WithError(err).Error("createInviteFrom3PIDInvite failed")
-			return jsonerror.InternalServerError()
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.InternalServerError{},
+			}
 		}
 		if event != nil {
 			evs = append(evs, &types.HeaderedEvent{PDU: event})
@@ -103,7 +103,10 @@ func CreateInvitesFrom3PIDInvites(
 		false,
 	); err != nil {
 		util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	return util.JSONResponse{
@@ -121,36 +124,36 @@ func ExchangeThirdPartyInvite(
 	cfg *config.FederationAPI,
 	federation fclient.FederationClient,
 ) util.JSONResponse {
-	var builder gomatrixserverlib.EventBuilder
-	if err := json.Unmarshal(request.Content(), &builder); err != nil {
+	var proto gomatrixserverlib.ProtoEvent
+	if err := json.Unmarshal(request.Content(), &proto); err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.NotJSON("The request body could not be decoded into valid JSON. " + err.Error()),
+			JSON: spec.NotJSON("The request body could not be decoded into valid JSON. " + err.Error()),
 		}
 	}
 
 	// Check that the room ID is correct.
-	if builder.RoomID != roomID {
+	if proto.RoomID != roomID {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("The room ID in the request path must match the room ID in the invite event JSON"),
+			JSON: spec.BadJSON("The room ID in the request path must match the room ID in the invite event JSON"),
 		}
 	}
 
-	_, senderDomain, err := cfg.Matrix.SplitLocalID('@', builder.Sender)
+	_, senderDomain, err := cfg.Matrix.SplitLocalID('@', proto.Sender)
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("Invalid sender ID: " + err.Error()),
+			JSON: spec.BadJSON("Invalid sender ID: " + err.Error()),
 		}
 	}
 
 	// Check that the state key is correct.
-	_, targetDomain, err := gomatrixserverlib.SplitID('@', *builder.StateKey)
+	_, targetDomain, err := gomatrixserverlib.SplitID('@', *proto.StateKey)
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("The event's state key isn't a Matrix user ID"),
+			JSON: spec.BadJSON("The event's state key isn't a Matrix user ID"),
 		}
 	}
 
@@ -158,7 +161,7 @@ func ExchangeThirdPartyInvite(
 	if targetDomain != request.Origin() {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.BadJSON("The event's state key doesn't have the same domain as the request's origin"),
+			JSON: spec.BadJSON("The event's state key doesn't have the same domain as the request's origin"),
 		}
 	}
 
@@ -166,20 +169,23 @@ func ExchangeThirdPartyInvite(
 	if err != nil {
 		return util.JSONResponse{
 			Code: http.StatusBadRequest,
-			JSON: jsonerror.UnsupportedRoomVersion(err.Error()),
+			JSON: spec.UnsupportedRoomVersion(err.Error()),
 		}
 	}
 
 	// Auth and build the event from what the remote server sent us
-	event, err := buildMembershipEvent(httpReq.Context(), &builder, rsAPI, cfg)
+	event, err := buildMembershipEvent(httpReq.Context(), &proto, rsAPI, cfg)
 	if err == errNotInRoom {
 		return util.JSONResponse{
 			Code: http.StatusNotFound,
-			JSON: jsonerror.NotFound("Unknown room " + roomID),
+			JSON: spec.NotFound("Unknown room " + roomID),
 		}
 	} else if err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Error("buildMembershipEvent failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	// Ask the requesting server to sign the newly created event so we know it
@@ -187,22 +193,34 @@ func ExchangeThirdPartyInvite(
 	inviteReq, err := fclient.NewInviteV2Request(event, nil)
 	if err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Error("failed to make invite v2 request")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 	signedEvent, err := federation.SendInviteV2(httpReq.Context(), senderDomain, request.Origin(), inviteReq)
 	if err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Error("federation.SendInvite failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 	verImpl, err := gomatrixserverlib.GetRoomVersion(roomVersion)
 	if err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Errorf("unknown room version: %s", roomVersion)
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 	inviteEvent, err := verImpl.NewEventFromUntrustedJSON(signedEvent.Event)
 	if err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Error("federation.SendInvite failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	// Send the event to the roomserver
@@ -219,7 +237,10 @@ func ExchangeThirdPartyInvite(
 		false,
 	); err != nil {
 		util.GetLogger(httpReq.Context()).WithError(err).Error("SendEvents failed")
-		return jsonerror.InternalServerError()
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{},
+		}
 	}
 
 	return util.JSONResponse{
@@ -237,7 +258,7 @@ func createInviteFrom3PIDInvite(
 	cfg *config.FederationAPI,
 	inv invite, federation fclient.FederationClient,
 	userAPI userapi.FederationUserAPI,
-) (*gomatrixserverlib.Event, error) {
+) (gomatrixserverlib.PDU, error) {
 	_, server, err := gomatrixserverlib.SplitID('@', inv.MXID)
 	if err != nil {
 		return nil, err
@@ -248,7 +269,7 @@ func createInviteFrom3PIDInvite(
 	}
 
 	// Build the event
-	builder := &gomatrixserverlib.EventBuilder{
+	proto := &gomatrixserverlib.ProtoEvent{
 		Type:     "m.room.member",
 		Sender:   inv.Sender,
 		RoomID:   inv.RoomID,
@@ -269,13 +290,13 @@ func createInviteFrom3PIDInvite(
 		},
 	}
 
-	if err = builder.SetContent(content); err != nil {
+	if err = proto.SetContent(content); err != nil {
 		return nil, err
 	}
 
-	event, err := buildMembershipEvent(ctx, builder, rsAPI, cfg)
+	event, err := buildMembershipEvent(ctx, proto, rsAPI, cfg)
 	if err == errNotInRoom {
-		return nil, sendToRemoteServer(ctx, inv, federation, cfg, *builder)
+		return nil, sendToRemoteServer(ctx, inv, federation, cfg, *proto)
 	}
 	if err != nil {
 		return nil, err
@@ -291,10 +312,10 @@ func createInviteFrom3PIDInvite(
 // Returns an error if something failed during the process.
 func buildMembershipEvent(
 	ctx context.Context,
-	builder *gomatrixserverlib.EventBuilder, rsAPI api.FederationRoomserverAPI,
+	protoEvent *gomatrixserverlib.ProtoEvent, rsAPI api.FederationRoomserverAPI,
 	cfg *config.FederationAPI,
-) (*gomatrixserverlib.Event, error) {
-	eventsNeeded, err := gomatrixserverlib.StateNeededForEventBuilder(builder)
+) (gomatrixserverlib.PDU, error) {
+	eventsNeeded, err := gomatrixserverlib.StateNeededForProtoEvent(protoEvent)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +326,7 @@ func buildMembershipEvent(
 
 	// Ask the roomserver for information about this room
 	queryReq := api.QueryLatestEventsAndStateRequest{
-		RoomID:       builder.RoomID,
+		RoomID:       protoEvent.RoomID,
 		StateToFetch: eventsNeeded.Tuples(),
 	}
 	var queryRes api.QueryLatestEventsAndStateResponse
@@ -319,8 +340,8 @@ func buildMembershipEvent(
 	}
 
 	// Auth the event locally
-	builder.Depth = queryRes.Depth
-	builder.PrevEvents = queryRes.LatestEvents
+	protoEvent.Depth = queryRes.Depth
+	protoEvent.PrevEvents = queryRes.LatestEvents
 
 	authEvents := gomatrixserverlib.NewAuthEvents(nil)
 
@@ -331,7 +352,7 @@ func buildMembershipEvent(
 		}
 	}
 
-	if err = fillDisplayName(builder, authEvents); err != nil {
+	if err = fillDisplayName(protoEvent, authEvents); err != nil {
 		return nil, err
 	}
 
@@ -339,11 +360,17 @@ func buildMembershipEvent(
 	if err != nil {
 		return nil, err
 	}
-	builder.AuthEvents = refs
+	protoEvent.AuthEvents = refs
+
+	verImpl, err := gomatrixserverlib.GetRoomVersion(queryRes.RoomVersion)
+	if err != nil {
+		return nil, err
+	}
+	builder := verImpl.NewEventBuilderFromProtoEvent(protoEvent)
 
 	event, err := builder.Build(
 		time.Now(), cfg.Matrix.ServerName, cfg.Matrix.KeyID,
-		cfg.Matrix.PrivateKey, queryRes.RoomVersion,
+		cfg.Matrix.PrivateKey,
 	)
 
 	return event, err
@@ -357,7 +384,7 @@ func buildMembershipEvent(
 func sendToRemoteServer(
 	ctx context.Context, inv invite,
 	federation fclient.FederationClient, cfg *config.FederationAPI,
-	builder gomatrixserverlib.EventBuilder,
+	proto gomatrixserverlib.ProtoEvent,
 ) (err error) {
 	remoteServers := make([]spec.ServerName, 2)
 	_, remoteServers[0], err = gomatrixserverlib.SplitID('@', inv.Sender)
@@ -372,7 +399,7 @@ func sendToRemoteServer(
 	}
 
 	for _, server := range remoteServers {
-		err = federation.ExchangeThirdPartyInvite(ctx, cfg.Matrix.ServerName, server, builder)
+		err = federation.ExchangeThirdPartyInvite(ctx, cfg.Matrix.ServerName, server, proto)
 		if err == nil {
 			return
 		}
@@ -393,7 +420,7 @@ func sendToRemoteServer(
 // found. Returning an error isn't necessary in this case as the event will be
 // rejected by gomatrixserverlib.
 func fillDisplayName(
-	builder *gomatrixserverlib.EventBuilder, authEvents gomatrixserverlib.AuthEvents,
+	builder *gomatrixserverlib.ProtoEvent, authEvents gomatrixserverlib.AuthEvents,
 ) error {
 	var content gomatrixserverlib.MemberContent
 	if err := json.Unmarshal(builder.Content, &content); err != nil {

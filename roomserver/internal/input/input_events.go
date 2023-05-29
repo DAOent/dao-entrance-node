@@ -805,7 +805,10 @@ func (r *Inputer) kickGuests(ctx context.Context, event gomatrixserverlib.PDU, r
 		return err
 	}
 
-	memberEvents, err := r.DB.Events(ctx, roomInfo, membershipNIDs)
+	if roomInfo == nil {
+		return types.ErrorInvalidRoomInfo
+	}
+	memberEvents, err := r.DB.Events(ctx, roomInfo.RoomVersion, membershipNIDs)
 	if err != nil {
 		return err
 	}
@@ -852,7 +855,7 @@ func (r *Inputer) kickGuests(ctx context.Context, event gomatrixserverlib.PDU, r
 		memberContent.Membership = spec.Leave
 
 		stateKey := *memberEvent.StateKey()
-		fledglingEvent := &gomatrixserverlib.EventBuilder{
+		fledglingEvent := &gomatrixserverlib.ProtoEvent{
 			RoomID:     event.RoomID(),
 			Type:       spec.MRoomMember,
 			StateKey:   &stateKey,
@@ -864,7 +867,7 @@ func (r *Inputer) kickGuests(ctx context.Context, event gomatrixserverlib.PDU, r
 			return err
 		}
 
-		eventsNeeded, err := gomatrixserverlib.StateNeededForEventBuilder(fledglingEvent)
+		eventsNeeded, err := gomatrixserverlib.StateNeededForProtoEvent(fledglingEvent)
 		if err != nil {
 			return err
 		}
@@ -880,9 +883,7 @@ func (r *Inputer) kickGuests(ctx context.Context, event gomatrixserverlib.PDU, r
 			Origin:       senderDomain,
 			SendAsServer: string(senderDomain),
 		})
-		prevEvents = []gomatrixserverlib.EventReference{
-			event.EventReference(),
-		}
+		prevEvents = []string{event.EventID()}
 	}
 
 	inputReq := &api.InputRoomEventsRequest{
@@ -890,5 +891,6 @@ func (r *Inputer) kickGuests(ctx context.Context, event gomatrixserverlib.PDU, r
 		Asynchronous:    true, // Needs to be async, as we otherwise create a deadlock
 	}
 	inputRes := &api.InputRoomEventsResponse{}
-	return r.InputRoomEvents(ctx, inputReq, inputRes)
+	r.InputRoomEvents(ctx, inputReq, inputRes)
+	return nil
 }
