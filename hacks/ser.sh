@@ -16,4 +16,4 @@ cd "$DIR/../bin"
 
 
 # PPROFLISTEN=localhost:65432 DENDRITE_TRACE_SQL=1 
-./dendrite -really-enable-open-registration --tls-cert server.crt --tls-key server.key --config dev.yaml
+./dendrite -really-enable-open-registration --tls-cert config/server.crt --tls-key config/server.key --config config/dev.yaml

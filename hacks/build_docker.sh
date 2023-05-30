@@ -18,7 +18,7 @@ if [ $# -gt 0 ]; then
   TAG="$1.$current"
 fi
 
-docker login -u=suixu@jxspy.com registry.cn-hangzhou.aliyuncs.com
+docker login -u=bai@asyou.me registry.cn-hangzhou.aliyuncs.com
 
 docker build . -t "registry.cn-hangzhou.aliyuncs.com/asyoume/dao-entrance-node:$TAG"
 
