@@ -215,9 +215,42 @@ func RemoveLocalAlias(
 	alias string,
 	rsAPI roomserverAPI.ClientRoomserverAPI,
 ) util.JSONResponse {
+	userID, err := spec.NewUserID(device.UserID, true)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusInternalServerError,
+			JSON: spec.InternalServerError{Err: "UserID for device is invalid"},
+		}
+	}
+
+	roomIDReq := roomserverAPI.GetRoomIDForAliasRequest{Alias: alias}
+	roomIDRes := roomserverAPI.GetRoomIDForAliasResponse{}
+	err = rsAPI.GetRoomIDForAlias(req.Context(), &roomIDReq, &roomIDRes)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusNotFound,
+			JSON: spec.NotFound("The alias does not exist."),
+		}
+	}
+
+	validRoomID, err := spec.NewRoomID(roomIDRes.RoomID)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusNotFound,
+			JSON: spec.NotFound("The alias does not exist."),
+		}
+	}
+	deviceSenderID, err := rsAPI.QuerySenderIDForUser(req.Context(), *validRoomID, *userID)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusNotFound,
+			JSON: spec.NotFound("The alias does not exist."),
+		}
+	}
+
 	queryReq := roomserverAPI.RemoveRoomAliasRequest{
-		Alias:  alias,
-		UserID: device.UserID,
+		Alias:    alias,
+		SenderID: deviceSenderID,
 	}
 	var queryRes roomserverAPI.RemoveRoomAliasResponse
 	if err := rsAPI.RemoveRoomAlias(req.Context(), &queryReq, &queryRes); err != nil {
@@ -288,7 +321,30 @@ func SetVisibility(
 	req *http.Request, rsAPI roomserverAPI.ClientRoomserverAPI, dev *userapi.Device,
 	roomID string,
 ) util.JSONResponse {
-	resErr := checkMemberInRoom(req.Context(), rsAPI, dev.UserID, roomID)
+	deviceUserID, err := spec.NewUserID(dev.UserID, true)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusBadRequest,
+			JSON: spec.BadJSON("userID for this device is invalid"),
+		}
+	}
+	validRoomID, err := spec.NewRoomID(roomID)
+	if err != nil {
+		util.GetLogger(req.Context()).WithError(err).Error("roomID is invalid")
+		return util.JSONResponse{
+			Code: http.StatusBadRequest,
+			JSON: spec.BadJSON("RoomID is invalid"),
+		}
+	}
+	senderID, err := rsAPI.QuerySenderIDForUser(req.Context(), *validRoomID, *deviceUserID)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusBadRequest,
+			JSON: spec.Unknown("failed to find senderID for this user"),
+		}
+	}
+
+	resErr := checkMemberInRoom(req.Context(), rsAPI, *deviceUserID, roomID)
 	if resErr != nil {
 		return *resErr
 	}
@@ -301,7 +357,7 @@ func SetVisibility(
 		}},
 	}
 	var queryEventsRes roomserverAPI.QueryLatestEventsAndStateResponse
-	err := rsAPI.QueryLatestEventsAndState(req.Context(), &queryEventsReq, &queryEventsRes)
+	err = rsAPI.QueryLatestEventsAndState(req.Context(), &queryEventsReq, &queryEventsRes)
 	if err != nil || len(queryEventsRes.StateEvents) == 0 {
 		util.GetLogger(req.Context()).WithError(err).Error("could not query events from room")
 		return util.JSONResponse{
@@ -312,7 +368,7 @@ func SetVisibility(
 
 	// NOTSPEC: Check if the user's power is greater than power required to change m.room.canonical_alias event
 	power, _ := gomatrixserverlib.NewPowerLevelContentFromEvent(queryEventsRes.StateEvents[0].PDU)
-	if power.UserLevel(dev.UserID) < power.EventLevel(spec.MRoomCanonicalAlias, true) {
+	if power.UserLevel(senderID) < power.EventLevel(spec.MRoomCanonicalAlias, true) {
 		return util.JSONResponse{
 			Code: http.StatusForbidden,
 			JSON: spec.Forbidden("userID doesn't have power level to change visibility"),

@@ -11,6 +11,7 @@ import (
 	"github.com/matrix-org/dendrite/internal/sqlutil"
 	"github.com/matrix-org/dendrite/setup/jetstream"
 	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 
 	"github.com/matrix-org/dendrite/appservice"
 	"github.com/matrix-org/dendrite/roomserver"
@@ -34,9 +35,9 @@ func TestJoinRoomByIDOrAlias(t *testing.T) {
 		caches := caching.NewRistrettoCache(128*1024*1024, time.Hour, caching.DisableMetrics)
 		natsInstance := jetstream.NATSInstance{}
 		rsAPI := roomserver.NewInternalAPI(processCtx, cfg, cm, &natsInstance, caches, caching.DisableMetrics)
+		rsAPI.SetFederationAPI(nil, nil) // creates the rs.Inputer etc
 		userAPI := userapi.NewInternalAPI(processCtx, cfg, cm, &natsInstance, rsAPI, nil)
 		asAPI := appservice.NewInternalAPI(processCtx, cfg, &natsInstance, userAPI, rsAPI)
-		rsAPI.SetFederationAPI(nil, nil) // creates the rs.Inputer etc
 
 		// Create the users in the userapi
 		for _, u := range []*test.User{alice, bob, charlie} {
@@ -63,7 +64,7 @@ func TestJoinRoomByIDOrAlias(t *testing.T) {
 			IsDirect:      true,
 			Topic:         "testing",
 			Visibility:    "public",
-			Preset:        presetPublicChat,
+			Preset:        spec.PresetPublicChat,
 			RoomAliasName: "alias",
 			Invite:        []string{bob.ID},
 		}, aliceDev, &cfg.ClientAPI, userAPI, rsAPI, asAPI, time.Now())
@@ -78,7 +79,7 @@ func TestJoinRoomByIDOrAlias(t *testing.T) {
 			IsDirect:   true,
 			Topic:      "testing",
 			Visibility: "public",
-			Preset:     presetPublicChat,
+			Preset:     spec.PresetPublicChat,
 			Invite:     []string{charlie.ID},
 		}, aliceDev, &cfg.ClientAPI, userAPI, rsAPI, asAPI, time.Now())
 		crRespWithGuestAccess, ok := resp.JSON.(createRoomResponse)

@@ -24,10 +24,12 @@ import (
 	"time"
 
 	"github.com/matrix-org/gomatrixserverlib"
+	"github.com/matrix-org/gomatrixserverlib/spec"
 	"github.com/matrix-org/util"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/matrix-org/dendrite/internal"
+	"github.com/matrix-org/dendrite/roomserver/api"
 	"github.com/matrix-org/dendrite/roomserver/types"
 )
 
@@ -49,13 +51,15 @@ type StateResolution struct {
 	db       StateResolutionStorage
 	roomInfo *types.RoomInfo
 	events   map[types.EventNID]gomatrixserverlib.PDU
+	Querier  api.QuerySenderIDAPI
 }
 
-func NewStateResolution(db StateResolutionStorage, roomInfo *types.RoomInfo) StateResolution {
+func NewStateResolution(db StateResolutionStorage, roomInfo *types.RoomInfo, querier api.QuerySenderIDAPI) StateResolution {
 	return StateResolution{
 		db:       db,
 		roomInfo: roomInfo,
 		events:   make(map[types.EventNID]gomatrixserverlib.PDU),
+		Querier:  querier,
 	}
 }
 
@@ -945,7 +949,9 @@ func (v *StateResolution) resolveConflictsV1(
 	}
 
 	// Resolve the conflicts.
-	resolvedEvents := gomatrixserverlib.ResolveStateConflicts(conflictedEvents, authEvents)
+	resolvedEvents := gomatrixserverlib.ResolveStateConflicts(conflictedEvents, authEvents, func(roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
+		return v.Querier.QueryUserIDForSender(ctx, roomID, senderID)
+	})
 
 	// Map from the full events back to numeric state entries.
 	for _, resolvedEvent := range resolvedEvents {
@@ -1057,6 +1063,9 @@ func (v *StateResolution) resolveConflictsV2(
 			conflictedEvents,
 			nonConflictedEvents,
 			authEvents,
+			func(roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
+				return v.Querier.QueryUserIDForSender(ctx, roomID, senderID)
+			},
 		)
 	}()
 

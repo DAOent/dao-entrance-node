@@ -101,8 +101,36 @@ func GetEvent(
 		}
 	}
 
+	sender := spec.UserID{}
+	validRoomID, err := spec.NewRoomID(roomID)
+	if err != nil {
+		return util.JSONResponse{
+			Code: http.StatusBadRequest,
+			JSON: spec.BadJSON("roomID is invalid"),
+		}
+	}
+	senderUserID, err := rsAPI.QueryUserIDForSender(req.Context(), *validRoomID, events[0].SenderID())
+	if err == nil && senderUserID != nil {
+		sender = *senderUserID
+	}
+
+	sk := events[0].StateKey()
+	if sk != nil && *sk != "" {
+		evRoomID, err := spec.NewRoomID(events[0].RoomID())
+		if err != nil {
+			return util.JSONResponse{
+				Code: http.StatusBadRequest,
+				JSON: spec.BadJSON("roomID is invalid"),
+			}
+		}
+		skUserID, err := rsAPI.QueryUserIDForSender(ctx, *evRoomID, spec.SenderID(*events[0].StateKey()))
+		if err == nil && skUserID != nil {
+			skString := skUserID.String()
+			sk = &skString
+		}
+	}
 	return util.JSONResponse{
 		Code: http.StatusOK,
-		JSON: synctypes.ToClientEvent(events[0], synctypes.FormatAll),
+		JSON: synctypes.ToClientEvent(events[0], synctypes.FormatAll, sender, sk),
 	}
 }

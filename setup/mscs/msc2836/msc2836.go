@@ -92,9 +92,11 @@ type MSC2836EventRelationshipsResponse struct {
 	ParsedAuthChain []gomatrixserverlib.PDU
 }
 
-func toClientResponse(res *MSC2836EventRelationshipsResponse) *EventRelationshipResponse {
+func toClientResponse(ctx context.Context, res *MSC2836EventRelationshipsResponse, rsAPI roomserver.RoomserverInternalAPI) *EventRelationshipResponse {
 	out := &EventRelationshipResponse{
-		Events:    synctypes.ToClientEvents(gomatrixserverlib.ToPDUs(res.ParsedEvents), synctypes.FormatAll),
+		Events: synctypes.ToClientEvents(gomatrixserverlib.ToPDUs(res.ParsedEvents), synctypes.FormatAll, func(roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error) {
+			return rsAPI.QueryUserIDForSender(ctx, roomID, senderID)
+		}),
 		Limited:   res.Limited,
 		NextBatch: res.NextBatch,
 	}
@@ -103,7 +105,7 @@ func toClientResponse(res *MSC2836EventRelationshipsResponse) *EventRelationship
 
 // Enable this MSC
 func Enable(
-	cfg *config.Dendrite, cm sqlutil.Connections, routers httputil.Routers, rsAPI roomserver.RoomserverInternalAPI, fsAPI fs.FederationInternalAPI,
+	cfg *config.Dendrite, cm *sqlutil.Connections, routers httputil.Routers, rsAPI roomserver.RoomserverInternalAPI, fsAPI fs.FederationInternalAPI,
 	userAPI userapi.UserInternalAPI, keyRing gomatrixserverlib.JSONVerifier,
 ) error {
 	db, err := NewDatabase(cm, &cfg.MSCs.Database)
@@ -152,7 +154,7 @@ type reqCtx struct {
 	rsAPI       roomserver.RoomserverInternalAPI
 	db          Database
 	req         *EventRelationshipRequest
-	userID      string
+	userID      spec.UserID
 	roomVersion gomatrixserverlib.RoomVersion
 
 	// federated request args
@@ -171,10 +173,17 @@ func eventRelationshipHandler(db Database, rsAPI roomserver.RoomserverInternalAP
 				JSON: spec.BadJSON(fmt.Sprintf("invalid json: %s", err)),
 			}
 		}
+		userID, err := spec.NewUserID(device.UserID, true)
+		if err != nil {
+			return util.JSONResponse{
+				Code: 400,
+				JSON: spec.BadJSON(fmt.Sprintf("invalid json: %s", err)),
+			}
+		}
 		rc := reqCtx{
 			ctx:                req.Context(),
 			req:                relation,
-			userID:             device.UserID,
+			userID:             *userID,
 			rsAPI:              rsAPI,
 			fsAPI:              fsAPI,
 			isFederatedRequest: false,
@@ -187,7 +196,7 @@ func eventRelationshipHandler(db Database, rsAPI roomserver.RoomserverInternalAP
 
 		return util.JSONResponse{
 			Code: 200,
-			JSON: toClientResponse(res),
+			JSON: toClientResponse(req.Context(), res, rsAPI),
 		}
 	}
 }
