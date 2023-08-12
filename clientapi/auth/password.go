@@ -89,7 +89,7 @@ func (t *LoginTypePassword) Login(ctx context.Context, req interface{}) (*Login,
 		fmt.Println("chainerr=>" + chainerr.Error())
 		return nil, &util.JSONResponse{
 			Code: http.StatusUnauthorized,
-			JSON: jsonerror.BadJSON("A username must be supplied."),
+			JSON: spec.BadJSON("A username must be supplied."),
 		}
 	}
 
@@ -99,7 +99,7 @@ func (t *LoginTypePassword) Login(ctx context.Context, req interface{}) (*Login,
 	if chainerr != nil {
 		return nil, &util.JSONResponse{
 			Code: http.StatusForbidden,
-			JSON: jsonerror.Forbidden("The username or password was incorrect or the account does not exist."),
+			JSON: spec.Forbidden("The username or password was incorrect or the account does not exist."),
 		}
 	}
 
@@ -108,7 +108,7 @@ func (t *LoginTypePassword) Login(ctx context.Context, req interface{}) (*Login,
 	if !ok {
 		return nil, &util.JSONResponse{
 			Code: http.StatusForbidden,
-			JSON: jsonerror.Forbidden("The username or password was incorrect or the account does not exist."),
+			JSON: spec.Forbidden("The username or password was incorrect or the account does not exist."),
 		}
 	}
 
