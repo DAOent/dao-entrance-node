@@ -55,6 +55,11 @@ type RestrictedJoinAPI interface {
 	LocallyJoinedUsers(ctx context.Context, roomVersion gomatrixserverlib.RoomVersion, roomNID types.RoomNID) ([]gomatrixserverlib.PDU, error)
 }
 
+type DefaultRoomVersionAPI interface {
+	// Returns the default room version used.
+	DefaultRoomVersion() gomatrixserverlib.RoomVersion
+}
+
 // RoomserverInputAPI is used to write events to the room server.
 type RoomserverInternalAPI interface {
 	SyncRoomserverAPI
@@ -64,6 +69,7 @@ type RoomserverInternalAPI interface {
 	FederationRoomserverAPI
 	QuerySenderIDAPI
 	UserRoomPrivateKeyCreator
+	DefaultRoomVersionAPI
 
 	// needed to avoid chicken and egg scenario when setting up the
 	// interdependencies between the roomserver and other input APIs
@@ -97,7 +103,7 @@ type InputRoomEventsAPI interface {
 }
 
 type QuerySenderIDAPI interface {
-	QuerySenderIDForUser(ctx context.Context, roomID spec.RoomID, userID spec.UserID) (spec.SenderID, error)
+	QuerySenderIDForUser(ctx context.Context, roomID spec.RoomID, userID spec.UserID) (*spec.SenderID, error)
 	QueryUserIDForSender(ctx context.Context, roomID spec.RoomID, senderID spec.SenderID) (*spec.UserID, error)
 }
 
@@ -210,6 +216,7 @@ type ClientRoomserverAPI interface {
 	QuerySenderIDAPI
 	UserRoomPrivateKeyCreator
 	QueryRoomHierarchyAPI
+	DefaultRoomVersionAPI
 	QueryMembershipForUser(ctx context.Context, req *QueryMembershipForUserRequest, res *QueryMembershipForUserResponse) error
 	QueryMembershipsForRoom(ctx context.Context, req *QueryMembershipsForRoomRequest, res *QueryMembershipsForRoomResponse) error
 	QueryRoomsForUser(ctx context.Context, req *QueryRoomsForUserRequest, res *QueryRoomsForUserResponse) error
@@ -237,8 +244,19 @@ type ClientRoomserverAPI interface {
 	PerformPublish(ctx context.Context, req *PerformPublishRequest) error
 	// PerformForget forgets a rooms history for a specific user
 	PerformForget(ctx context.Context, req *PerformForgetRequest, resp *PerformForgetResponse) error
-	SetRoomAlias(ctx context.Context, req *SetRoomAliasRequest, res *SetRoomAliasResponse) error
-	RemoveRoomAlias(ctx context.Context, req *RemoveRoomAliasRequest, res *RemoveRoomAliasResponse) error
+
+	// Sets a room alias, as provided sender, pointing to the provided room ID.
+	//
+	// If err is nil, then the returned boolean indicates if the alias is already in use.
+	// If true, then the alias has not been set to the provided room, as it already in use.
+	SetRoomAlias(ctx context.Context, senderID spec.SenderID, roomID spec.RoomID, alias string) (aliasAlreadyExists bool, err error)
+
+	//RemoveRoomAlias(ctx context.Context, req *RemoveRoomAliasRequest, res *RemoveRoomAliasResponse) error
+	// Removes a room alias, as provided sender.
+	//
+	// Returns whether the alias was found, whether it was removed, and an error (if any occurred)
+	RemoveRoomAlias(ctx context.Context, senderID spec.SenderID, alias string) (aliasFound bool, aliasRemoved bool, err error)
+
 	SigningIdentityFor(ctx context.Context, roomID spec.RoomID, senderID spec.UserID) (fclient.SigningIdentity, error)
 }
 
