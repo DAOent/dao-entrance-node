@@ -29,6 +29,7 @@ import (
 	"github.com/matrix-org/dendrite/roomserver/api"
 	"github.com/matrix-org/dendrite/roomserver/types"
 	"github.com/matrix-org/dendrite/setup/config"
+	"github.com/matrix-org/dendrite/syncapi/synctypes"
 	userapi "github.com/matrix-org/dendrite/userapi/api"
 	"github.com/matrix-org/gomatrixserverlib"
 	"github.com/matrix-org/gomatrixserverlib/spec"
@@ -90,6 +91,30 @@ func SendEvent(
 		if res, ok := txnCache.FetchTransaction(device.AccessToken, *txnID, req.URL); ok {
 			return *res
 		}
+	}
+
+	// Translate user ID state keys to room keys in pseudo ID rooms
+	if roomVersion == gomatrixserverlib.RoomVersionPseudoIDs && stateKey != nil {
+		parsedRoomID, innerErr := spec.NewRoomID(roomID)
+		if innerErr != nil {
+			return util.JSONResponse{
+				Code: http.StatusBadRequest,
+				JSON: spec.InvalidParam("invalid room ID"),
+			}
+		}
+
+		newStateKey, innerErr := synctypes.FromClientStateKey(*parsedRoomID, *stateKey, func(roomID spec.RoomID, userID spec.UserID) (*spec.SenderID, error) {
+			return rsAPI.QuerySenderIDForUser(req.Context(), roomID, userID)
+		})
+		if innerErr != nil {
+			// TODO: work out better logic for failure cases (e.g. sender ID not found)
+			util.GetLogger(req.Context()).WithError(innerErr).Error("synctypes.FromClientStateKey failed")
+			return util.JSONResponse{
+				Code: http.StatusInternalServerError,
+				JSON: spec.Unknown("internal server error"),
+			}
+		}
+		stateKey = newStateKey
 	}
 
 	// create a mutex for the specific user in the specific room
@@ -316,10 +341,17 @@ func generateSendEvent(
 		}
 	}
 	senderID, err := rsAPI.QuerySenderIDForUser(ctx, *validRoomID, *fullUserID)
-	if err != nil || senderID == nil {
+	if err != nil {
 		return nil, &util.JSONResponse{
-			Code: http.StatusNotFound,
-			JSON: spec.NotFound("Unable to find senderID for user"),
+			Code: http.StatusInternalServerError,
+			JSON: spec.NotFound("internal server error"),
+		}
+	} else if senderID == nil {
+		// TODO: is it always the case that lack of a sender ID means they're not joined?
+		//       And should this logic be deferred to the roomserver somehow?
+		return nil, &util.JSONResponse{
+			Code: http.StatusForbidden,
+			JSON: spec.Forbidden("not joined to room"),
 		}
 	}
 
