@@ -239,7 +239,7 @@ type authDict struct {
 	// TODO: Lots of custom keys depending on the type
 }
 
-// http://matrix.org/speculator/spec/HEAD/client_server/unstable.html#user-interactive-authentication-api
+// https://spec.matrix.org/v1.7/client-server-api/#user-interactive-authentication-api
 type userInteractiveResponse struct {
 	Flows     []authtypes.Flow       `json:"flows"`
 	Completed []authtypes.LoginType  `json:"completed"`
@@ -259,7 +259,7 @@ func newUserInteractiveResponse(
 	}
 }
 
-// http://matrix.org/speculator/spec/HEAD/client_server/unstable.html#post-matrix-client-unstable-register
+// https://spec.matrix.org/v1.7/client-server-api/#post_matrixclientv3register
 type registerResponse struct {
 	UserID      string `json:"user_id"`
 	AccessToken string `json:"access_token,omitempty"`
@@ -465,7 +465,7 @@ func validateApplicationService(
 }
 
 // Register processes a /register request.
-// http://matrix.org/speculator/spec/HEAD/client_server/unstable.html#post-matrix-client-unstable-register
+// https://spec.matrix.org/v1.7/client-server-api/#post_matrixclientv3register
 func Register(
 	req *http.Request,
 	userAPI userapi.ClientUserAPI,
