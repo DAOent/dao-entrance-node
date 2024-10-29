@@ -1,0 +1,154 @@
+version: 2
+
+global:
+  server_name: xiaobai.asyou.me
+  private_key: matrix_key.pem
+  key_validity_period: 168h0m0s
+
+  jetstream:
+    in_memory: true
+    storage_path: ./
+    topic_prefix: org
+
+  database:
+    connection_string: postgresql://postgres:Jx201501@api.tc.asyou.me:30432/xiaobai_asyou_me_node?sslmode=disable
+    max_open_conns: 90
+    max_idle_conns: 5
+    conn_max_lifetime: -1
+
+  dns_cache:
+    enabled: true
+    cache_size: 256
+    cache_lifetime: "5m" # 5 minutes; https://pkg.go.dev/time@master#ParseDuration
+
+
+# Configuration for the Client API.
+client_api:
+  registration_disabled: true
+  guests_disabled: true
+  registration_shared_secret: ""
+  enable_registration_captcha: false
+
+  # Settings for ReCAPTCHA.
+  recaptcha_public_key: ""
+  recaptcha_private_key: ""
+  recaptcha_bypass_secret: ""
+  
+  # To use hcaptcha.com instead of ReCAPTCHA, set the following parameters, otherwise just keep them empty.
+  # recaptcha_siteverify_api: "https://hcaptcha.com/siteverify"
+  # recaptcha_api_js_url: "https://js.hcaptcha.com/1/api.js"
+  # recaptcha_form_field: "h-captcha-response"
+  # recaptcha_sitekey_class: "h-captcha"
+
+
+  # TURN server information that this homeserver should send to clients.
+  turn:
+    turn_user_lifetime: "5m"
+    turn_uris:
+    #  - turn:turn.server.org?transport=udp
+    #  - turn:turn.server.org?transport=tcp
+    turn_shared_secret: ""
+    # If your TURN server requires static credentials, then you will need to enter
+    # them here instead of supplying a shared secret. Note that these credentials
+    # will be visible to clients!
+    # turn_username: ""
+    # turn_password: ""
+
+  rate_limiting:
+    enabled: true
+    threshold: 20
+    cooloff_ms: 500
+    exempt_user_ids:
+    #  - "@user:domain.com"
+
+# Configuration for the Federation API.
+federation_api:
+  send_max_retries: 16
+  disable_tls_validation: false
+  disable_http_keepalives: false
+  # key_perspectives:
+  #   - server_name: xiaobai.asyou.me
+  #     keys:
+  #       - key_id: ed25519:auto
+  #         public_key: Noi6WqcDj0QmPxCNQqgezwTlBKrfqehY1u2FyWP9uYw
+  #       - key_id: ed25519:a_RXGa
+  #         public_key: l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ
+  prefer_direct_fetch: false
+
+# Configuration for the Media API.
+media_api:
+  base_path: ./media_store
+  max_file_size_bytes: 10485760
+  dynamic_thumbnails: false
+  max_thumbnail_generators: 10
+
+  # A list of thumbnail sizes to be generated for media content.
+  thumbnail_sizes:
+    - width: 32
+      height: 32
+      method: crop
+    - width: 96
+      height: 96
+      method: crop
+    - width: 640
+      height: 480
+      method: scale
+
+# Configuration for enabling experimental MSCs on this homeserver.
+mscs:
+  mscs:
+   - msc2836  # (Threading, see https://github.com/matrix-org/matrix-doc/pull/2836)
+   - msc2946  # (Spaces Summary, see https://github.com/matrix-org/matrix-doc/pull/2946)
+
+# Configuration for the Sync API.
+sync_api:
+  # Configuration for the full-text search engine.
+  search:
+    enabled: false
+    index_path: "./searchindex"
+    language: "en"
+
+# Configuration for the User API.
+user_api:
+  bcrypt_cost: 10
+
+  # The length of time that a token issued for a relying party from
+  # /_matrix/client/r0/user/{userId}/openid/request_token endpoint
+  # is considered to be valid in milliseconds.
+  # The default lifetime is 3600000ms (60 minutes).
+  # openid_token_lifetime_ms: 3600000
+
+  # Users who register on this homeserver will automatically be joined to the rooms listed under "auto_join_rooms" option.
+  # By default, any room aliases included in this list will be created as a publicly joinable room
+  # when the first user registers for the homeserver. If the room already exists,
+  # make certain it is a publicly joinable room, i.e. the join rule of the room must be set to 'public'.
+  # As Spaces are just rooms under the hood, Space aliases may also be used.
+  auto_join_rooms:
+  #  - "#main:xiaobai.asyou.me"
+
+# Configuration for Opentracing.
+# See https://github.com/matrix-org/dendrite/tree/master/docs/tracing for information on
+# how this works and how to set it up.
+tracing:
+  enabled: false
+  jaeger:
+    serviceName: ""
+    disabled: false
+    rpc_metrics: false
+    tags: []
+    sampler: null
+    reporter: null
+    headers: null
+    baggage_restrictions: null
+    throttler: null
+
+# Logging configuration. The "std" logging type controls the logs being sent to
+# stdout. The "file" logging type controls logs being written to a log folder on
+# the disk. Supported log levels are "debug", "info", "warn", "error".
+logging:
+  - type: std
+    level: info
+  - type: file
+    level: info
+    params:
+      path: ./logs

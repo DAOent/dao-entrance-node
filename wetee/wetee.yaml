@@ -1,0 +1,15 @@
+includes:
+  - base.yaml
+targets:
+  - target: /bin
+    copy:
+      - files:
+        - ../bin/dendrite-monolith-server
+  - target: /
+    copy:
+      - files:
+        - ../config/
+  - target: /
+    copy:
+      - files:
+        - ../config/matrix_key.pem
